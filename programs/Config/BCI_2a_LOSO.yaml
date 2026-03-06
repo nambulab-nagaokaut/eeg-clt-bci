@@ -1,0 +1,84 @@
+Dataset:
+  name: BCI2a
+  num_classes: 4
+  EEGchannels: 22
+  samples: 1000
+
+Training:
+  batch_size: 288
+  n_epochs: 1000
+  lr: 0.001  
+  b1: 0.5 
+  b2: 0.999
+
+Augmentation:
+  num_augments: 3 
+  n_segments: 8
+  segment_length: 125 # 125 x 8 = 1000
+
+CLT:  
+  Model_hyperparams:
+    F1: 13
+    D: 4
+    input_size: 52  #13*4
+    hidden_size: 60
+    EEGChans: ${Dataset.EEGchannels}
+    EEGSamples: ${Dataset.samples} 
+    Conv_drop: 0.25 
+    numheads: 4
+    depth: 6
+    num_classes: ${Dataset.num_classes}
+  Optimizer_hyperparams:
+    Conv_Decay: 0.001 
+    Linear_Decay: 0.001   
+    Other_Decay: 0 
+
+EEGNet:
+  Model_hyperparams:
+    F1: 8
+    D: 2
+    drop_out: 0.25
+    EEGChans: ${Dataset.EEGchannels}
+    EEGSamples: ${Dataset.samples} 
+    num_cls: ${Dataset.num_classes}
+
+EEGConformer:
+  Model_hyperparams:
+    input_dim: 2440
+    emb_size: 40
+    depth: 6
+    n_classes: ${Dataset.num_classes}
+    EEGChans: ${Dataset.EEGchannels}
+    Physionet: False
+
+
+CTNet:
+  Model_hyperparams:
+    heads: 2
+    emb_size: 16
+    depth: 6
+    database_type: 'A'
+    eeg1_f1: 8
+    eeg1_kernel_size: 64
+    eeg1_D: 2
+    eeg1_pooling_size1: 8
+    eeg1_pooling_size2: 8
+    eeg1_dropout_rate: 0.25
+    eeg1_number_channel: ${Dataset.EEGchannels}    
+    flatten_eeg1: 240
+
+CLTNet:
+  Model_hyperparams:
+    heads: 2
+    emb_size: 16
+    depth: 6
+    database_type: 'A'
+    eeg1_f1: 8
+    eeg1_kernel_size: 64
+    eeg1_D: 2
+    eeg1_pooling_size1: 8
+    eeg1_pooling_size2: 8
+    eeg1_dropout_rate: 0.25
+    eeg1_number_channel: ${Dataset.EEGchannels}
+    flatten_eeg1: 240
+
