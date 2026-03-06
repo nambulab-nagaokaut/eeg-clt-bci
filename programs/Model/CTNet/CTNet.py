@@ -1,34 +1,18 @@
 """
+Note: The code is based on the following paper:
+------------------
 CTNet: A Convolution-Transformer Network for EEG-Based Motor Imagery Classification
 
 author: zhaowei701@163.com
 
 Cite this work
 Zhao, W., Jiang, X., Zhang, B. et al. CTNet: a convolutional transformer network for EEG-based motor imagery classification. Sci Rep 14, 20237 (2024). https://doi.org/10.1038/s41598-024-71118-7
-
+------------------
 """
 # modified from Zhao et al. 2024 
 
 
-# import os
-# gpus = [0]
-# os.environ['CUDA_DEVICE_ORDER'] = 'PCI_BUS_ID'
-# os.environ["CUDA_VISIBLE_DEVICES"] = '0'
-# import numpy as np
-# import pandas as pd
-# import random
-# import datetime
-# import time
-
-# from torch.backends import cudnn
-# from utils import calMetrics
-# from utils import calculatePerClass
-# from utils import numberClassChannel
 import math
-# import warnings
-# warnings.filterwarnings("ignore")
-# cudnn.benchmark = False
-# cudnn.deterministic = True
 
 import torch
 from torch import nn
@@ -37,12 +21,9 @@ from einops.layers.torch import Rearrange, Reduce
 from einops import rearrange, reduce, repeat
 import torch.nn.functional as F
 
-# from utils import numberClassChannel
-# from utils import load_data_evaluate
-
 import numpy as np
 import pandas as pd
-# from torch.autograd import Variable
+
 
 class PatchEmbeddingCNN(nn.Module):
     def __init__(self, f1=16, kernel_size=64, D=2, pooling_size1=8, pooling_size2=8, dropout_rate=0.3, number_channel=22, emb_size=40):

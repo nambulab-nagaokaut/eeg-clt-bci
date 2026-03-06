@@ -1,12 +1,16 @@
+""" CLTNet
+The code is based on the following paper:
+    "CLTNet: A Hybrid Deep Learning Model for Motor Imagery Classification"
+    https://github.com/ctwei-wed/CLTNet
+
+ The code has been modified to fit the input data shape for performance on our dataset.
+"""
+ 
 import datetime
 
-# from utils import calMetrics
 import math
 import os
 
-# gpus = [0]
-# os.environ['CUDA_DEVICE_ORDER'] = 'PCI_BUS_ID'
-# os.environ["CUDA_VISIBLE_DEVICES"] = '0'
 import random
 import time
 import warnings
@@ -24,8 +28,6 @@ from einops import rearrange, reduce, repeat
 from einops.layers.torch import Rearrange, Reduce
 import matplotlib.pyplot as plt
 
-# from utils import numberClassChannel
-# from utils import load_data_evaluate
 import numpy as np
 import pandas as pd
 import seaborn as sns

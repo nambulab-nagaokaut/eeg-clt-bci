@@ -1,14 +1,14 @@
-# CNN-LSTM-Transformer (CLT) for EEG motor imagery decoding
+# EEG CNN-LSTM-Transformer (EEG-CLT) for motor imagery decoding
 
 ## Abstract
 
-To improve the classification accuracy of motor imagery EEG signals, In this research I propose the CLT model, which combines three architectures: Convolutional Neural Network (CNN), Long-short term memory (LSTM), and Transformer.
+To improve the classification accuracy of motor imagery EEG signals, In this research I propose the CLT model, which combines three architectures sequentially: Convolutional Neural Network (CNN), Long-short term memory (LSTM), and Transformer.
 
 - CNN is used to extract local spatial and temporal features
 - Leveraging the high temporal resolution of EEG signals, optimally capture temporal information using Long Short-Term Memory (LSTM)
 - Global features are integrated through the Transformer's self-attention mechanism
-
-![CLT Architecture](images/CLT_Structure_white.png)
+<!-- 
+![CLT Architecture](images/CLT_Structure_white.png) -->
 
 ## Datasets
 
@@ -37,9 +37,14 @@ To improve the classification accuracy of motor imagery EEG signals, In this res
 
 ## Analysis
 
-- The 3 models EEGNet  [[paper](https://arxiv.org/abs/1611.08024), [original code](https://github.com/vlawhern/arl-eegmodels)], EEGConformer  [[paper](https://ieeexplore.ieee.org/document/9991178), [original code](https://github.com/eeyhsong/EEG-Conformer)], and CLT (the proposed model) are defined in files in the Model folder
+- EEGNet [[paper](https://arxiv.org/abs/1611.08024), [original code](https://github.com/vlawhern/arl-eegmodels)]
+- EEGConformer  [[paper](https://ieeexplore.ieee.org/document/9991178), [original code](https://github.com/eeyhsong/EEG-Conformer)]
+- CTNet [paper](https://doi.org/10.1038/s41598-024-71118-7), [original codes](https://github.com/snailpt/CTNet)
+- CLTNet [paper](https://doi.org/10.3390/brainsci15020124), [original codes](https://github.com/ctwei-wed/CLTNet)
+- CLT (the proposed model) are defined in files in the Model folder
 - The files [Within_Subj_Main.py](programs/Within_Subj_Main.py), [LOSO_Main.py](programs/LOSO_Main.py), and [Physionet_Main.py](programs/Physionet_Main.py) perform training and testing according to three evaluation approaches: Within Subject, Leave one subject out (LOSO), and Leave multiple subjects out (LMSO)
-- After downloading BCI Competition IV 2a, BCI Competition IV 2b, and Physionet EEG Motor Movement/Imagery Datasets, the data path should be set in the 'data_path' variable, and model [CLT, EEGNet, Conformer] should be put in the 'Model_name' variable in 3 xx_Main.py files
+- After downloading BCI Competition IV 2a, BCI Competition IV 2b, and Physionet EEG Motor Movement/Imagery Datasets, the data path should be set in the 'data_path' variable, and model [CLT, EEGNet, Conformer, CTNet, CLTNet] should be put in the 'Model_name' variable in 3 xx_Main.py files
+- Random seeds for the repeated evaluation are set to [1, 200, 400, 600, 800, 1000, 1200, 1400, 1600, 1800].
 
 ## Requirement
 
