@@ -1,3 +1,8 @@
+"""
+wilcoxon_results_all.py
+Perform Wilcoxon signed-rank tests comparing each model against the CLT model using subject-wise seed means from the aggregated results CSV files for BCI2a, BCI2b, and Physionet datasets. The output includes mean, SD, per-subject means, and test statistics in an Excel file.
+"""
+
 import os
 
 import numpy as np

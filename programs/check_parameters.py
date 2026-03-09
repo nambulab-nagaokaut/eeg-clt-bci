@@ -1,3 +1,9 @@
+"""
+Check_parameters.py
+Check and print the number of trainable parameters for each model (CLT, CTNet, CLTNet, EEGNet, Conformer) on BCI2a, BCI2b, and Physionet datasets.
+
+"""
+
 from Model.CLT.CLT import CombinedModule
 from Model.CTNet.CLTNet import EEGLTransformer as CLTNet
 from Model.CTNet.CTNet import EEGTransformer as CTNet
@@ -7,6 +13,7 @@ from omegaconf import OmegaConf
 import torch
 from torch import nn
 from torchinfo import summary
+
 
 def count_parameters(model: nn.Module) -> int:
     return sum(p.numel() for p in model.parameters() if p.requires_grad)

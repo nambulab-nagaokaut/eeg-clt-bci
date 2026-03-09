@@ -1,3 +1,8 @@
+"""
+Within_Subj_Main_ablation.py
+Main training and evaluation loop for within-subject experiments on BCI2a and BCI2b datasets, with ablation models (CLT_lstm and CLT_pe).
+"""
+
 import os
 
 gpus = [0]
@@ -10,6 +15,11 @@ import random
 import time
 import traceback
 
+from Additional_Func import apply_max_norm, get_parameters_by_layer_type
+from Load_data import get_data
+from Model.CLT.CLT import CombinedModule
+from Model.CLT.CLT_lstm import CombinedModule_lstm
+from Model.CLT.CLT_pe import CombinedModule_pe
 import matplotlib.pyplot as plt
 import numpy as np
 from omegaconf import OmegaConf
@@ -24,16 +34,6 @@ import torch.optim as optim
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 from torchinfo import summary
 import torchvision.transforms as transforms
-
-from Additional_Func import apply_max_norm, get_parameters_by_layer_type
-from Load_data import get_data
-from Model.CLT.CLT import CombinedModule
-from Model.CLT.CLT_lstm import CombinedModule_lstm
-from Model.CLT.CLT_pe import CombinedModule_pe
-from Model.CTNet.CLTNet import EEGLTransformer as CLTNet
-from Model.CTNet.CTNet import EEGTransformer as CTNet
-from Model.Conformer import Conformer
-from Model.EEGNet import EEGNET
 
 print(torch.__version__)
 print(torch.cuda.current_device())
@@ -60,19 +60,26 @@ data_path = "./data/{}_gdf/".format(dataset)
 # Choose Model: CLT, EEGNet, Conformer
 Model_name = "CLT"
 # Model_name = "CLT_lstm"
-# Model_name = "EEGNet"
-# Model_name = "Conformer"
-# Model_name = "CTNet"
-# Model_name = "CLTNet"
 # Model_name = "CLT_pe"
 
 print("Model name: ", Model_name)
+save_root = (
+    "./results/Within_Subj_results_replicate/{}_train_val_results/Model_{}/".format(
+        dataset, Model_name
+    )
+)
+
+if not os.path.exists(save_root):
+    os.makedirs(save_root)
+    print(f"save_root {save_root} created")
+else:
+    print(f"save_root {save_root} already exists")
 
 
 def log_model(model):
 
     if Model_name == "CTNet" or Model_name == "CLTNet":
-        # 4D テンソル (batch, channel_in, channels, samples) を渡す
+        #
         input_size = (1, 1, config.Dataset.EEGchannels, config.Dataset.samples)
         try:
             model_summary = summary(
@@ -149,10 +156,68 @@ def augment(timg, label, seed=0, n_segments=8, segment_length=125):
     return aug_data, aug_label
 
 
+def augment_torch(
+    all_x, all_y, seed, n_segments, segment_length, batch_size, num_classes
+):
+    # all_x: (N, C, L) on device
+    # all_y: (N,) on device
+    if seed is not None:
+        torch.manual_seed(seed)
+        torch.cuda.manual_seed_all(seed)
+
+    C = all_x.shape[1]
+    L = n_segments * segment_length
+    assert all_x.shape[2] == L
+
+    # (N, C, S, seglen)
+    x4 = all_x.view(-1, C, n_segments, segment_length)
+
+    per_cls = batch_size // num_classes
+    aug_chunks = []
+    aug_labels = []
+
+    dev = all_x.device
+
+    for c in range(num_classes):
+        idx_c = torch.where(all_y == c)[0]
+        x_c = x4[idx_c]  # (Nc, C, S, seglen)
+        Nc = x_c.shape[0]
+
+        # rand indices: (per_cls, S)
+        rand = torch.randint(0, Nc, (per_cls, n_segments), device=dev)
+
+        # flatten trick to pick (trial, segment) pairs without Python loops
+        rand_flat = rand.reshape(-1)  # (per_cls*S,)
+        sel = x_c[rand_flat]  # (per_cls*S, C, S, seglen)
+
+        seg_flat = torch.arange(n_segments, device=dev).repeat(per_cls)  # (per_cls*S,)
+        row = torch.arange(per_cls * n_segments, device=dev)
+
+        # pick the matching segment for each row: -> (per_cls*S, C, seglen)
+        picked = sel[row, :, seg_flat, :]
+
+        # reshape back to (per_cls, C, L)
+        aug = (
+            picked.view(per_cls, n_segments, C, segment_length)
+            .permute(0, 2, 1, 3)
+            .reshape(per_cls, C, L)
+        )
+
+        aug_chunks.append(aug)
+        aug_labels.append(torch.full((per_cls,), c, device=dev, dtype=torch.long))
+
+    aug_data = torch.cat(aug_chunks, dim=0)  # (batch_size, C, L)
+    aug_label = torch.cat(aug_labels, dim=0)  # (batch_size,)
+
+    # shuffle
+    perm = torch.randperm(aug_data.shape[0], device=dev)
+    return aug_data[perm], aug_label[perm]
+
+
 def load_data(nSub: int, dataset: str = "BCI2a"):
     # Load data from disk
     train_data, train_label, test_data, test_label = get_data(
-        data_path, nSub, dataset, seed_n=0, Shuffle=False, isStandard=False
+        data_path, nSub, dataset, seed_n=0, Shuffle=False
     )
 
     # Split Train and Val set
@@ -173,9 +238,8 @@ def load_data(nSub: int, dataset: str = "BCI2a"):
             random_state=seed_n,
         )
 
-    # subject-wise standardization using training data
-    train_mean = np.mean(train_data)
-    train_std = np.std(train_data)
+    train_mean = np.mean(train_data, axis=(0, 2), keepdims=True)
+    train_std = np.std(train_data, axis=(0, 2), keepdims=True)
     train_data = (train_data - train_mean) / (train_std)
     val_data = (val_data - train_mean) / (train_std)
     test_data = (test_data - train_mean) / (train_std)
@@ -186,18 +250,10 @@ def load_data(nSub: int, dataset: str = "BCI2a"):
 def get_model(model_name: str = "CLT"):
     if model_name == "CLT":
         model = CombinedModule(**config.CLT.Model_hyperparams).to(device)
-    if model_name == "CLT_lstm":
+    elif model_name == "CLT_lstm":
         model = CombinedModule_lstm(**config.CLT_lstm.Model_hyperparams).to(device)
     if model_name == "CLT_pe":
         model = CombinedModule_pe(**config.CLT_pe.Model_hyperparams).to(device)
-    elif model_name == "EEGNet":
-        model = EEGNET(**config.EEGNet.Model_hyperparams).to(device)
-    elif model_name == "Conformer":
-        model = Conformer(**config.EEGConformer.Model_hyperparams).to(device)
-    elif model_name == "CTNet":
-        model = CTNet(**config.CTNet.Model_hyperparams).to(device)
-    elif model_name == "CLTNet":
-        model = CLTNet(**config.CLTNet.Model_hyperparams).to(device)
     return model
 
 
@@ -272,7 +328,16 @@ def train_val(dataset, num_augments=3, n_segments=8, segment_length=125):
             model_hyperparams = {
                 "Model_hyperparameters": config[model_key].Model_hyperparams
             }
-            if Model_name == "CLT" or Model_name == "CLT_lstm"or Model_name == "CLT_pe" or Model_name == "CTL" or Model_name == "TCL" or Model_name == "TLC" or Model_name == "LTC" or Model_name == "LCT"   :
+            if (
+                Model_name == "CLT"
+                or Model_name == "CLT_lstm"
+                or Model_name == "CLT_pe"
+                or Model_name == "CTL"
+                or Model_name == "TCL"
+                or Model_name == "TLC"
+                or Model_name == "LTC"
+                or Model_name == "LCT"
+            ):
                 model_hyperparams["Optimizer_hyperparameters"] = (
                     config.CLT.Optimizer_hyperparams
                 )
@@ -280,7 +345,7 @@ def train_val(dataset, num_augments=3, n_segments=8, segment_length=125):
                 model_hyperparams,
                 save_root + "Subject_{}_best_model.pth".format(nSub + 1),
             )
- 
+
             print("\n" + "Subject {}".format(nSub + 1))
             log_results.write("\n" + "----Subject {}----".format(nSub + 1) + "\n")
             train_data, train_label, val_data, val_label, _, _ = load_data(
@@ -314,8 +379,15 @@ def train_val(dataset, num_augments=3, n_segments=8, segment_length=125):
             model = get_model(model_name=model_name)
 
             # Optimizers
-            if model_name == "CLT" or model_name == "CLT_lstm"  or model_name == "CLT_pe" or model_name == "CTL" or model_name == "CL" or model_name == "CT":
-                print("CLT or other CLT models")
+            if (
+                model_name == "CLT"
+                or model_name == "CLT_lstm"
+                or model_name == "CLT_pe"
+                or model_name == "CTL"
+                or model_name == "CL"
+                or model_name == "CT"
+            ):
+                print("CLT model or abalation models")
                 all_params = list(model.parameters())
                 EEGN_Conv_params = get_parameters_by_layer_type(
                     model.EEGN_Conv, nn.Conv2d
@@ -330,7 +402,6 @@ def train_val(dataset, num_augments=3, n_segments=8, segment_length=125):
                 ]
 
                 optimizer = torch.optim.AdamW(
-                    
                     [
                         {
                             "params": EEGN_Conv_params,
@@ -344,41 +415,9 @@ def train_val(dataset, num_augments=3, n_segments=8, segment_length=125):
                                 "Linear_Decay"
                             ],
                         },
-
+                    ],
                     lr=config.Training.lr,
                     betas=(config.Training.b1, config.Training.b2),
-                )
-
-            elif model_name == "EEGNet":
-                print("EEGNet model")
-                optimizer = torch.optim.AdamW(
-                    params=model.parameters(),
-                    lr=config.Training.lr,
-                    betas=(config.Training.b1, config.Training.b2),
-                )
-
-            elif model_name == "Conformer":
-                print("Conformer model")
-                optimizer = torch.optim.Adam(
-                    model.parameters(),
-                    lr=config.Training.lr,
-                    betas=(config.Training.b1_2, config.Training.b2),
-                )
-
-            elif model_name == "CTNet":
-                print("CTNet model")
-                optimizer = torch.optim.Adam(
-                    model.parameters(),
-                    lr=config.Training.lr,
-                    betas=(config.Training.b1_2, config.Training.b2),
-                )
-
-            elif model_name == "CLTNet":
-                print("CLTNet model")
-                optimizer = torch.optim.Adam(
-                    model.parameters(),
-                    lr=config.Training.lr,
-                    betas=(config.Training.b1_2, config.Training.b2),
                 )
 
             scheduler = ReduceLROnPlateau(
@@ -399,31 +438,52 @@ def train_val(dataset, num_augments=3, n_segments=8, segment_length=125):
                 total = 0
                 for i, (train_data, train_label) in enumerate(train_loader):
 
-                    train_data = Variable(train_data.to(device))
-                    train_label = Variable(train_label.to(device))
+                    All_train_data_t = torch.tensor(
+                        All_train_data, dtype=torch.float32, device=device
+                    )
+                    All_train_label_t = torch.tensor(
+                        All_train_label, dtype=torch.long, device=device
+                    )
 
-                    # Data Augmentation
-                    total_data = [train_data]
-                    total_label = [train_label]
+                    B = train_data.shape[0]
+                    total_B = B * (1 + num_augments)
+
+                    x = torch.empty(
+                        (total_B, train_data.shape[1], train_data.shape[2]),
+                        device=device,
+                        dtype=train_data.dtype,
+                    )
+                    y = torch.empty((total_B,), device=device, dtype=train_label.dtype)
+
+                    x[:B] = train_data
+                    y[:B] = train_label
+
                     for aug_idx in range(num_augments):
                         current_seed = seed_n + e * 1000 + aug_idx
-                        aug_data, aug_label = augment(
-                            All_train_data,
-                            All_train_label,
+                        aug_x, aug_y = augment_torch(
+                            All_train_data_t,
+                            All_train_label_t,
                             seed=current_seed,
                             n_segments=n_segments,
                             segment_length=segment_length,
+                            batch_size=B,
+                            num_classes=config.Dataset.num_classes,
                         )
-                        # print("Augmented data shape: ", aug_data.shape)
-                        total_data.append(aug_data)
-                        total_label.append(aug_label)
-                    train_data = torch.cat(total_data, dim=0)
-                    train_label = torch.cat(total_label, dim=0)
+                        s = B * (aug_idx + 1)
+                        x[s : s + B] = aug_x
+                        y[s : s + B] = aug_y
+
+                    train_data, train_label = x, y
+
+                    # print(
+                    #     f"[Epoch {e+1}] Total training samples after augmentation: {train_data.size(0)}"
+                    # )
 
                     optimizer.zero_grad()
                     outputs = model(train_data)
 
                     loss = criterion_cls(outputs, train_label)
+
                     loss.backward()
                     optimizer.step()
 
@@ -600,18 +660,6 @@ def Test(dataset):
 
 if __name__ == "__main__":
 
-    # seed_list = [
-    #     1132949301,
-    #     2643341749,
-    #     633340735,
-    #     756118265,
-    #     1527420486,
-    #     1441477941,
-    #     1276866379,
-    #     3072864098,
-    #     1268030903,
-    #     1050652309,
-    # ]
     seed_list = [
         1,
         200,
@@ -623,7 +671,7 @@ if __name__ == "__main__":
         1400,
         1600,
         1800,
-    ]  # 任意の10個のseed値
+    ]  #
 
     for idx, seed in enumerate(seed_list):
         print(f"\n========== Running experiment {idx+1}/10 with seed {seed} ==========")
@@ -633,7 +681,7 @@ if __name__ == "__main__":
         np.random.seed(seed_n)
         torch.manual_seed(seed_n)
 
-        save_root = f"./results/Within_Subj_results_replicate_final/{dataset}_train_val_results/Model_{Model_name}/aug_{num_augments}/seed_{seed}/"
+        save_root = f"./results/Within_Subj_results_replicate/{dataset}_train_val_results/Model_{Model_name}/aug_{num_augments}/seed_{seed}/"
 
         if not os.path.exists(save_root):
             os.makedirs(save_root)
@@ -646,7 +694,10 @@ if __name__ == "__main__":
                 segment_length=segment_length,
             )
             Test(dataset)
+
         except Exception as e:
             with open(f"./results/error_log_seed_{seed}.txt", "w") as f:
                 f.write(traceback.format_exc())
             print(f"[ERROR] seed {seed}: error logged")
+
+    print("finished Model name: ", Model_name)

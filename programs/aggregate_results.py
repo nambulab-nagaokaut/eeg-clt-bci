@@ -1,3 +1,9 @@
+"""
+Aggregate_results.py
+
+Aggregate test accuracies from multiple seeds and folds for BCI2a and BCI2b datasets, and save to CSV.
+"""
+
 import os
 
 import pandas as pd

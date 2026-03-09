@@ -1,71 +1,113 @@
-import os
+"""
+Within_Subj_Main_Aug.py
+Main training and evaluation loop for within-subject experiments on BCI2a and BCI2b datasets, with data augmentation.
 
-os.chdir("/workspaces/EEG-CLT/")  # Set working directory to EEG-CLT root folder
+"""
+
+import os
 
 gpus = [1]
 os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
 os.environ["CUDA_VISIBLE_DEVICES"] = ",".join(map(str, gpus))
+# os.environ["CUDA_VISIBLE_DEVICES"] = "1"
 
 import datetime
+import os
 import random
 import time
 import traceback
 
+from Additional_Func import apply_max_norm, get_parameters_by_layer_type
+from Load_data import get_data
+from Model.CLT.CLT import CombinedModule
+from Model.CTNet.CLTNet import EEGLTransformer as CLTNet
+from Model.CTNet.CTNet import EEGTransformer as CTNet
+from Model.Conformer import Conformer
+from Model.EEGNet import EEGNET
 import matplotlib.pyplot as plt
 import numpy as np
 from omegaconf import OmegaConf
 import seaborn as sns
 from sklearn.model_selection import train_test_split
 import torch
+from torch import Tensor
+
+# from torch.autograd import Variable
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 from torch.optim.lr_scheduler import ReduceLROnPlateau
-from torch.utils.data import DataLoader
 from torchinfo import summary
 import torchvision.transforms as transforms
 
-from Additional_Func import apply_max_norm, get_parameters_by_layer_type
-from Load_data import Load_Physionet_data, cross_validation, get_data
-from Model.CLT.CLT import CombinedModule
-from Model.CTNet.CLTNet import EEGLTransformer as CLTNet
-from Model.CTNet.CTNet import EEGTransformer as CTNet
-from Model.Conformer import Conformer
-from Model.EEGNet import EEGNET
+print(torch.__version__)
+print(torch.cuda.current_device())
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 print(f"Using device: {device}")
 
+# seed_n = 1
+# print('seed is ' + str(seed_n))
+# random.seed(seed_n)
+# np.random.seed(seed_n)
+# torch.manual_seed(seed_n)
+
 # Load Configuration file
-config = OmegaConf.load("./programs/Config/Physionet_LMSO.yaml")
+config = OmegaConf.load("./programs/Config/BCI_2a_within.yaml")
+# config = OmegaConf.load("./programs/Config/BCI_2b_within.yaml")
 OmegaConf.resolve(config)
 
 num_augments = config.Augmentation.num_augments
 n_segments = config.Augmentation.n_segments
 segment_length = config.Augmentation.segment_length
 
-criterion_cls = torch.nn.CrossEntropyLoss().cuda()
+batch_size = config.Training.batch_size
+criterion_cls = torch.nn.CrossEntropyLoss().to(device)
 
 dataset = config.Dataset.name
-data_path = "./data/Physionet_EEG_MIME_Original/files/".format(dataset)
+data_path = "./data/{}_gdf/".format(dataset)
 
-Model_name = "CLT"
-# Model_name = "EEGNet"
+# Choose Model: CLT, EEGNet, Conformer
+# Model_name = "CLT"
+Model_name = "EEGNet"
 # Model_name = "Conformer"
 # Model_name = "CTNet"
 # Model_name = "CLTNet"
-print(f"Model name: {Model_name}")
+print("Model name: ", Model_name)
+save_root = (
+    "./results/Within_Subj_re"
+    "sults_replicate/{}_train_val_results/Model_{}/".format(dataset, Model_name)
+)
 
-if Model_name == "Conformer":
-    batch_size = config.Training.batch_size_Conformer
+if not os.path.exists(save_root):
+    os.makedirs(save_root)
+    print(f"save_root {save_root} created")
 else:
-    batch_size = config.Training.batch_size
+    print(f"save_root {save_root} already exists")
+
+# def log_model(model):
+#     log_file = save_root + "log_model.txt"
+#     with open(log_file, "w", encoding="utf-8") as f:
+#         try:
+#             model_summary = summary(
+#                 model,
+#                 input_size=(1, 1, config.Dataset.EEGchannels, config.Dataset.samples),
+#                 device=device,
+#                 verbose=2,
+#                 col_width=16,
+#                 col_names=["kernel_size", "output_size", "num_params"],
+#                 row_settings=["var_names"],
+#             )
+#             f.write(str(model_summary))
+#         except Exception as e:
+#             f.write("Model summary failed: " + str(e) + "\n")
+#             f.write("Executed layers up to: " + getattr(e, "executed_layers", "unknown") + "\n")
 
 
 def log_model(model):
 
     if Model_name == "CTNet" or Model_name == "CLTNet":
-
+        # 4D テンソル (batch, channel_in, channels, samples) を渡す
         input_size = (1, 1, config.Dataset.EEGchannels, config.Dataset.samples)
         try:
             model_summary = summary(
@@ -87,7 +129,7 @@ def log_model(model):
         model_summary = summary(
             model,
             (1, config.Dataset.EEGchannels, config.Dataset.samples),
-            
+            # dtypes=[torch.long],
             verbose=2,
             col_width=16,
             col_names=["kernel_size", "output_size", "num_params"],
@@ -97,7 +139,7 @@ def log_model(model):
         log_model.close()
 
 
-def augment(timg, label, seed=0, n_segments=8, segment_length=80):
+def augment(timg, label, seed=0, n_segments=8, segment_length=125):
     if seed is not None:
         np.random.seed(seed)
 
@@ -128,7 +170,7 @@ def augment(timg, label, seed=0, n_segments=8, segment_length=80):
 
         aug_data.append(tmp_aug_data)
         aug_label.append(tmp_label[: int(batch_size / cls)])
-        
+        # print(aug_label.shape)
     aug_data = np.concatenate(aug_data)
     aug_label = np.concatenate(aug_label)
     aug_shuffle = np.random.permutation(len(aug_data))
@@ -141,9 +183,12 @@ def augment(timg, label, seed=0, n_segments=8, segment_length=80):
     aug_label = aug_label.long()
     return aug_data, aug_label
 
+
 def augment_torch(
     all_x, all_y, seed, n_segments, segment_length, batch_size, num_classes
 ):
+    # all_x: (N, C, L) on device
+    # all_y: (N,) on device
     if seed is not None:
         torch.manual_seed(seed)
         torch.cuda.manual_seed_all(seed)
@@ -196,13 +241,47 @@ def augment_torch(
     perm = torch.randperm(aug_data.shape[0], device=dev)
     return aug_data[perm], aug_label[perm]
 
+
+def load_data(nSub: int, dataset: str = "BCI2a"):
+    # Load data from disk
+    train_data, train_label, test_data, test_label = get_data(
+        data_path, nSub, dataset, seed_n=0, Shuffle=False
+    )
+
+    # Split Train and Val set
+    if dataset == "BCI2a":
+        train_data, val_data, train_label, val_label = train_test_split(
+            train_data,
+            train_label,
+            test_size=0.25,
+            stratify=train_label,
+            random_state=seed_n,
+        )
+    elif dataset == "BCI2b":
+        train_data, val_data, train_label, val_label = train_test_split(
+            train_data,
+            train_label,
+            test_size=0.2,
+            stratify=train_label,
+            random_state=seed_n,
+        )
+
+    train_mean = np.mean(train_data, axis=(0, 2), keepdims=True)
+    train_std = np.std(train_data, axis=(0, 2), keepdims=True)
+    train_data = (train_data - train_mean) / (train_std)
+    val_data = (val_data - train_mean) / (train_std)
+    test_data = (test_data - train_mean) / (train_std)
+
+    return train_data, train_label, val_data, val_label, test_data, test_label
+
+
 def get_model(model_name: str = "CLT"):
     if model_name == "CLT":
         model = CombinedModule(**config.CLT.Model_hyperparams).to(device)
     elif model_name == "EEGNet":
-        model = EEGNET(**config.EEGNet.Model_hyperparams).to(device)
+        model = EEGNET(**config.EEGNet).to(device)
     elif model_name == "Conformer":
-        model = Conformer(**config.EEGConformer.Model_hyperparams).to(device)
+        model = Conformer(**config.EEGConformer).to(device)
     elif model_name == "CTNet":
         model = CTNet(**config.CTNet.Model_hyperparams).to(device)
     elif model_name == "CLTNet":
@@ -221,8 +300,18 @@ def confusion_matrix(true_label, predict_label):
 
 
 def conf_plot(conf_matrix, data_set):
-    if data_set == "Physionet":
-        labels = ["Left fist", "Right fist", "Both fist", "Both feet"]
+    if data_set == "BCI2a":
+        labels = [
+            "Left hand",
+            "Right hand",
+            "Foot",
+            "Tongue",
+        ]  # i. e., 1, 2, 3, 4 corresponding to event types 769, 770, 771, 772
+    elif data_set == "BCI2b":
+        labels = [
+            "Left hand",
+            "Right hand",
+        ]  # i. e., 1 and 2, corresponding to event types 769 and 770
     plt.figure(figsize=(9, 7))
     heatmap = sns.heatmap(
         conf_matrix,
@@ -245,11 +334,11 @@ def conf_plot(conf_matrix, data_set):
     plt.xticks(fontsize=12)
     plt.yticks(fontsize=12)
     plt.savefig(save_root + Model_name + "_Conf_matrix.jpg")
-    # plt.show()
+    plt.show()
 
 
 # def train_val(dataset):
-def train_val(dataset, num_augments=1, n_segments=8, segment_length=80):
+def train_val(dataset, num_augments=3, n_segments=8, segment_length=125):
     generator = torch.Generator()
     generator.manual_seed(seed_n)
     log_results = open(save_root + "Val_Acc_log.txt", "w", encoding="UTF-8")
@@ -258,31 +347,26 @@ def train_val(dataset, num_augments=1, n_segments=8, segment_length=80):
     try:
         Accuracies = []
 
-        for k in range(10):  # 10 KFold iterations
+        for nSub in range(9):
             log_train = open(
-                save_root + "Train_Val_log_Fold_{}.txt".format(k + 1),
+                save_root + "Train_Acc_loss_log_{}.txt".format(nSub + 1),
                 "w",
                 encoding="UTF-8",
             )
-            log_train.write(
-                "Epoch " + "Train ACC " + "Train Loss" + "Val ACC " + "Val Loss" + "\n"
-            )
-            # Save hyperparams of each KFold iteration
-            model_key = Model_name if Model_name != "Conformer" else "EEGConformer"
-            model_hyperparams = {
-                "Model_hyperparameters": config[model_key].Model_hyperparams
-            }
-            if Model_name == "CLT":
-                model_hyperparams["Optimizer_hyperparameters"] = (
-                    config.CLT.Optimizer_hyperparams
-                )
-            torch.save(
-                model_hyperparams, save_root + "Fold_{}_best_model.pth".format(k + 1)
-            )
+            log_train.write("Epoch " + "Train ACC " + "Train Loss" + "\n")
 
-            log_results.write("\n" + "----Fold {}----".format(k + 1) + "\n")
-            train_data, train_label, val_data, val_label, _, _ = cross_validation(
-                data_path, n_splits=10, K=k
+            # Save hyperparams of each subject
+            torch.save(
+                {
+                    "Model_hyperparameters": config.CLT.Model_hyperparams,
+                    "Optimizer_hyperparameters": config.CLT.Optimizer_hyperparams,
+                },
+                save_root + "Subject_{}_best_model.pth".format(nSub + 1),
+            )
+            print("\n" + "Subject {}".format(nSub + 1))
+            log_results.write("\n" + "----Subject {}----".format(nSub + 1) + "\n")
+            train_data, train_label, val_data, val_label, _, _ = load_data(
+                nSub=nSub, dataset=dataset
             )
             All_train_data = train_data
             All_train_label = train_label
@@ -313,20 +397,25 @@ def train_val(dataset, num_augments=1, n_segments=8, segment_length=80):
 
             # Optimizers
             if model_name == "CLT":
+                print("CLT model")
                 all_params = list(model.parameters())
                 EEGN_Conv_params = get_parameters_by_layer_type(
                     model.EEGN_Conv, nn.Conv2d
                 )
-                Causal_Conv_params = get_parameters_by_layer_type(model.LSTM, nn.Conv1d)
                 Linear_params = get_parameters_by_layer_type(model.Classify, nn.Linear)
 
                 param_ids = set()
                 param_ids.update(id(param) for param in EEGN_Conv_params)
-                param_ids.update(id(param) for param in Causal_Conv_params)
                 param_ids.update(id(param) for param in Linear_params)
                 Other_params = [
                     param for param in all_params if id(param) not in param_ids
                 ]
+
+                # optimizer = torch.optim.AdamW(
+                #     params=model.parameters(),
+                #     lr=config.Training.lr,
+                #     betas=(config.Training.b1, config.Training.b2),
+                # )
 
                 optimizer = torch.optim.AdamW(
                     [
@@ -342,12 +431,19 @@ def train_val(dataset, num_augments=1, n_segments=8, segment_length=80):
                                 "Linear_Decay"
                             ],
                         },
+                        # {
+                        #     "params": Other_params,
+                        #     "weight_decay": config.CLT.Optimizer_hyperparams[
+                        #         "Other_Decay"
+                        #     ],
+                        # },
                     ],
                     lr=config.Training.lr,
                     betas=(config.Training.b1, config.Training.b2),
                 )
 
             elif model_name == "EEGNet":
+                print("EEGNet model")
                 optimizer = torch.optim.AdamW(
                     params=model.parameters(),
                     lr=config.Training.lr,
@@ -355,26 +451,21 @@ def train_val(dataset, num_augments=1, n_segments=8, segment_length=80):
                 )
 
             elif model_name == "Conformer":
-                optimizer = torch.optim.Adam(
-                    params=model.parameters(),
-                    lr=config.Training.lr,
-                    betas=(config.Training.b1_2, config.Training.b2),
+                print("Conformer model")
+                optimizer = torch.optim.AdamW(
+                    model.parameters(), lr=config.Training.lr, betas=(0.5, 0.999)
                 )
 
             elif model_name == "CTNet":
                 print("CTNet model")
-                optimizer = torch.optim.Adam(
-                    model.parameters(),
-                    lr=config.Training.lr,
-                    betas=(config.Training.b1_2, config.Training.b2),
+                optimizer = torch.optim.AdamW(
+                    model.parameters(), lr=config.Training.lr, betas=(0.5, 0.999)
                 )
 
             elif model_name == "CLTNet":
                 print("CLTNet model")
-                optimizer = torch.optim.Adam(
-                    model.parameters(),
-                    lr=config.Training.lr,
-                    betas=(config.Training.b1_2, config.Training.b2),
+                optimizer = torch.optim.AdamW(
+                    model.parameters(), lr=config.Training.lr, betas=(0.5, 0.999)
                 )
 
             scheduler = ReduceLROnPlateau(
@@ -385,9 +476,7 @@ def train_val(dataset, num_augments=1, n_segments=8, segment_length=80):
             starttime = datetime.datetime.now()
             Best_Val_acc = 0
             Best_Val_loss = 5
-            counter = 0
-            patience = 300  # Epochs
-            best_epoch = 0
+
             for e in range(config.Training.n_epochs):
                 in_epoch = time.time()
                 # Train Loop
@@ -397,7 +486,9 @@ def train_val(dataset, num_augments=1, n_segments=8, segment_length=80):
                 total = 0
                 for i, (train_data, train_label) in enumerate(train_loader):
 
-            
+                    # train_data = Variable(train_data.to(device))
+                    # train_label = Variable(train_label.to(device))
+
                     All_train_data_t = torch.tensor(
                         All_train_data, dtype=torch.float32, device=device
                     )
@@ -405,7 +496,28 @@ def train_val(dataset, num_augments=1, n_segments=8, segment_length=80):
                         All_train_label, dtype=torch.long, device=device
                     )
 
-                    
+                    # # Data Augmentation
+                    # aug_data, aug_label = augment(All_train_data, All_train_label)
+                    # train_data = torch.cat((train_data, aug_data))
+                    # train_label = torch.cat((train_label, aug_label))
+
+                    # total_data = [train_data]
+                    # total_label = [train_label]
+                    # for aug_idx in range(num_augments):
+                    #     current_seed = seed_n + e * 1000 + aug_idx
+                    #     aug_data, aug_label = augment(
+                    #         All_train_data,
+                    #         All_train_label,
+                    #         seed=current_seed,
+                    #         n_segments=n_segments,
+                    #         segment_length=segment_length,
+                    #     )
+                    #     # print("Augmented data shape: ", aug_data.shape)
+                    #     total_data.append(aug_data)
+                    #     total_label.append(aug_label)
+                    # train_data = torch.cat(total_data, dim=0)
+                    # train_label = torch.cat(total_label, dim=0)
+
                     B = train_data.shape[0]  # drop_last=True なら B==batch_size
                     total_B = B * (1 + num_augments)
 
@@ -436,12 +548,15 @@ def train_val(dataset, num_augments=1, n_segments=8, segment_length=80):
 
                     train_data, train_label = x, y
 
-                    # Forward pass
+                    # print(
+                    #     f"[Epoch {e+1}] Total training samples after augmentation: {train_data.size(0)}"
+                    # )
+
                     optimizer.zero_grad()
                     outputs = model(train_data)
+
                     loss = criterion_cls(outputs, train_label)
 
-                    # Backward pass
                     loss.backward()
                     optimizer.step()
 
@@ -452,6 +567,14 @@ def train_val(dataset, num_augments=1, n_segments=8, segment_length=80):
                     total += train_label.size(0)
                 epoch_loss = running_loss / total
                 epoch_acc = running_corrects.double() / total
+                log_train.write(
+                    str(e + 1)
+                    + " "
+                    + str(epoch_acc.detach().cpu().numpy())
+                    + " "
+                    + str(epoch_loss)
+                    + "\n"
+                )
 
                 # Evaluation Loop
                 model.eval()
@@ -461,10 +584,11 @@ def train_val(dataset, num_augments=1, n_segments=8, segment_length=80):
                 with torch.no_grad():
                     for i, (val_data, val_label) in enumerate(val_loader):
 
-                        val_data = val_data.cuda()
-                        val_label = val_label.cuda()
+                        val_data = val_data.to(device)
+                        val_label = val_label.to(device)
 
                         Cls = model(val_data)
+
                         loss_val = criterion_cls(Cls, val_label)
                         val_running_loss += loss_val.item() * val_data.size(0)
                         preds = torch.max(Cls, 1)[1]
@@ -472,18 +596,20 @@ def train_val(dataset, num_augments=1, n_segments=8, segment_length=80):
                         val_total += val_label.size(0)
                 val_loss = val_running_loss / val_total
                 val_acc = val_running_corrects.double() / val_total
-                log_train.write(
-                    str(e + 1)
-                    + " "
-                    + str(epoch_acc.detach().cpu().numpy())
-                    + " "
-                    + str(epoch_loss)
-                    + " "
-                    + str(val_acc.detach().cpu().numpy())
-                    + " "
-                    + str(val_loss)
-                    + "\n"
-                )
+
+                if val_acc >= Best_Val_acc:
+                    Best_Val_acc = val_acc
+                    Best_Val_loss = val_loss
+                    # Save Best model
+                    check_point = torch.load(
+                        save_root + "Subject_{}_best_model.pth".format(nSub + 1)
+                    )
+                    check_point["model_state_dict"] = model.state_dict()
+                    torch.save(
+                        check_point,
+                        save_root + "Subject_{}_best_model.pth".format(nSub + 1),
+                    )
+                    # print(f'--> Save Best Model at epoch {e+1}')
 
                 # print('Epoch:', e+1,
                 #             '  Train loss: %.6f' % epoch_loss,
@@ -493,191 +619,179 @@ def train_val(dataset, num_augments=1, n_segments=8, segment_length=80):
                 scheduler.step(val_loss)
                 current_lr = optimizer.param_groups[0]["lr"]
                 # print('Current learning rate:', current_lr)
-
-                # Save best model and Early stopping
-                if val_acc >= Best_Val_acc:
-                    counter = 0
-                    Best_Val_acc = val_acc
-                    Best_Val_loss = val_loss
-                    best_epoch = e + 1
-                    # Save Best model
-                    check_point = torch.load(
-                        save_root + "Fold_{}_best_model.pth".format(k + 1)
-                    )
-                    check_point["model_state_dict"] = model.state_dict()
-                    torch.save(
-                        check_point, save_root + "Fold_{}_best_model.pth".format(k + 1)
-                    )
-                    print(f"--> Save Best Model at epoch {e+1}")
-                else:  # Early stopping
-                    counter += 1
-                    if counter >= patience:
-                        print(f"Early stopping at Epoch {e+1}")
-                        break
-
             endtime = datetime.datetime.now()
             print(str(endtime - starttime))
-            log_train.write(f"{e+1} Epoch runtimes: " + str(endtime - starttime))
+            log_train.write("1000 Epoch runtimes: " + str(endtime - starttime))
             log_train.close()
 
             log_results.write(
-                f"Best Model at {best_epoch}:"
-                + "\n"
-                + "Best Val ACC: "
+                "Best Val ACC: "
                 + str(Best_Val_acc.detach().cpu().numpy())
                 + "       "
                 + "Best Val Loss: "
                 + str(Best_Val_loss)
                 + "\n"
             )
-            # Save Val ACC at Fold k
+            # Save Val ACC at subject i
             print("Best Val ACC: {}".format(Best_Val_acc))
             Accuracies.append(Best_Val_acc)
 
-        # Calculate mean of Val ACC across KFold
+        # Calculate mean of Val ACC across 9 Subjects
         mean_accuracy = np.mean([acc.detach().cpu().numpy() for acc in Accuracies])
         log_results.write("\n" + "Best Average Val ACC: " + str(mean_accuracy) + "\n")
         log_results.close()
 
     except Exception as e:
-        print(f"Fold {k} Error: {e}")
+        print(f"Subject {nSub} gặp lỗi: {e}")
         raise e
 
 
-def Test(n_splits, dataset):
-    subject_indices = np.linspace(1, 100, 100, dtype=int)  # Subjects 1 -> 100
-    Accuracies = []
-    for K in range(10):
-        print(f"\n-----Fold {K+1}-----")
-        fold_size = len(subject_indices) // n_splits
-        test_indices = subject_indices[K * fold_size : (K + 1) * fold_size]
-        print(f"Test Subject: {test_indices}")
+def Test(dataset):
+    generator = torch.Generator()
+    generator.manual_seed(seed_n)
+    log_results = open(save_root + "Test_Acc_log.txt", "w", encoding="UTF-8")
 
-        test_result_path = save_root + "Test Results/Fold_{}/".format(K + 1)
-        if not os.path.exists(test_result_path):
-            os.makedirs(test_result_path)
-
-        log_results = open(test_result_path + "Test_Acc_log.txt", "w", encoding="UTF-8")
-
-        Sub_accuracies = []
-        conf_matries = []
-        for nSub in test_indices:
-
-            conf_path = test_result_path + "Confusion matrices/"
-            if not os.path.exists(conf_path):
-                os.makedirs(conf_path)
-            log_conf = open(
-                conf_path + "Subject_{}.txt".format(nSub), "w", encoding="UTF-8"
-            )
-
-            print("\n" + "Subject {}".format(nSub))
-            log_results.write("\n" + "----Subject {}----".format(nSub) + "\n")
-
-            # check_point = torch.load(save_root + 'Fold_{}_best_model.pth'.format(nSub+1),map_location=torch.device('cuda'))
-            check_point = torch.load(
-                save_root + "Fold_{}_best_model.pth".format(K + 1),
-                map_location=torch.device("cuda"),
-            )
-
-            model = get_model(model_name=Model_name)
-            model.load_state_dict(check_point["model_state_dict"])
-            test_data, test_label = Load_Physionet_data(root_path=data_path, nsub=nSub)
-            test_data = torch.tensor(test_data, dtype=torch.float32)
-            test_label = torch.tensor(test_label, dtype=torch.long)
-
-            # Create DataLoader
-            test_loader = torch.utils.data.DataLoader(
-                dataset=torch.utils.data.TensorDataset(test_data, test_label),
-                batch_size=21,
-                shuffle=True,
-            )
-
-            model.eval()
-
-            correct = 0
-            total = 0
-
-            with torch.no_grad():
-                True_label = []
-                Predicted_label = []
-                for data, targets in test_loader:
-                    data, targets = data.cuda(), targets.cuda()
-                    outputs = model(data)
-                    _, predicted = torch.max(outputs.data, 1)
-                    total += targets.size(0)
-                    correct += (predicted == targets).sum().item()
-                    True_label.append(targets)
-                    Predicted_label.append(predicted)
-                True_label = torch.cat(True_label, dim=0)
-                Predicted_label = torch.cat(Predicted_label, dim=0)
-
-            accuracy = correct / total
-            conf_matrix, norm_conf_matrix = confusion_matrix(
-                true_label=True_label, predict_label=Predicted_label
-            )
-
-            conf_matries.append(norm_conf_matrix)
-            Sub_accuracies.append(accuracy)
-
-            print(f"Test ACC: {accuracy * 100:.2f}%")
-            log_results.write("Test Acc: {}".format(accuracy) + "\n")
-
-            log_conf.write(
-                "Test ACC: "
-                + str(accuracy)
-                + "\n"
-                + str(conf_matrix.detach().cpu().numpy())
-            )
-            log_conf.close()
-
-        ave_conf = np.round(np.mean(conf_matries, axis=0), 4)
-        ave_acc = np.mean([acc for acc in Sub_accuracies])
-        Accuracies.append(ave_acc)
-        print("\n" + f"Average Acc: {ave_acc* 100:.2f}%")
-        conf_plot(ave_conf, data_set=dataset)
-        log_results.write("\n" + "-------------------" + "\n")
-        log_results.write(
-            "Average Test Acc across 10 subjects: {}".format(ave_acc) + "\n"
+    Sub_accuracies = []
+    conf_matries = []
+    for nSub in range(9):
+        conf_path = save_root + "Confusion matrices/"
+        if not os.path.exists(conf_path):
+            os.makedirs(conf_path)
+        log_conf = open(
+            conf_path + "Subject_{}.txt".format(nSub + 1), "w", encoding="UTF-8"
         )
-        log_results.close()
 
-    ave_accuracies = np.mean([acc for acc in Accuracies])
-    print(f"Test ACC: {ave_accuracies * 100:.2f}%")
-    log_average_folds = open(
-        save_root + "Test Results/" + "Test_10_Folds_Acc_log.txt", "w", encoding="UTF-8"
-    )
-    log_average_folds.write(
-        "Average Test Acc across 10 folds: {}".format(ave_accuracies) + "\n"
-    )
+        print("\n" + "Subject {}".format(nSub + 1))
+        log_results.write("\n" + "----Subject {}----".format(nSub + 1) + "\n")
+
+        check_point = torch.load(
+            save_root + "Subject_{}_best_model.pth".format(nSub + 1),
+            map_location=device,
+        )
+        model = get_model(model_name=Model_name)
+        model.load_state_dict(check_point["model_state_dict"])
+        _, _, _, _, test_data, test_label = load_data(nSub=nSub, dataset=dataset)
+        test_data = torch.tensor(test_data, dtype=torch.float32)
+        test_label = torch.tensor(test_label, dtype=torch.long)
+
+        Accuracies = []
+        # Create DataLoader
+        test_loader = torch.utils.data.DataLoader(
+            dataset=torch.utils.data.TensorDataset(test_data, test_label),
+            batch_size=120,
+            shuffle=True,
+            generator=generator,
+        )
+        model.eval()
+
+        correct = 0
+        total = 0
+
+        with torch.no_grad():
+            True_label = []
+            Predicted_label = []
+            for data, targets in test_loader:
+                data, targets = data.to(device), targets.to(device)
+
+                outputs = model(data)
+
+                _, predicted = torch.max(outputs.data, 1)
+                total += targets.size(0)
+                correct += (predicted == targets).sum().item()
+                True_label.append(targets)
+                Predicted_label.append(predicted)
+            True_label = torch.cat(True_label, dim=0)
+            Predicted_label = torch.cat(Predicted_label, dim=0)
+
+        accuracy = correct / total
+        conf_matrix, norm_conf_matrix = confusion_matrix(
+            true_label=True_label, predict_label=Predicted_label
+        )
+
+        conf_matries.append(norm_conf_matrix)
+        Sub_accuracies.append(accuracy)
+
+        print(f"Test ACC: {accuracy * 100:.2f}%")
+        log_results.write("Test Acc: {}".format(accuracy) + "\n")
+
+        log_conf.write(
+            "Test ACC: "
+            + str(accuracy)
+            + "\n"
+            + str(conf_matrix.detach().cpu().numpy())
+        )
+        log_conf.close()
+
+    ave_conf = np.round(np.mean(conf_matries, axis=0), 4)
+    ave_acc = np.mean([acc for acc in Sub_accuracies])
+    print("\n" + f"Average Acc: {ave_acc* 100:.2f}%")
+    conf_plot(ave_conf, data_set=dataset)
+    log_results.write("\n" + "-------------------" + "\n")
+    log_results.write("Average Test Acc across 9 subjects: {}".format(ave_acc) + "\n")
     log_results.close()
 
 
 if __name__ == "__main__":
+    # train_val(dataset)
+    # Test(dataset) # test the model
 
-    seed_list = [1,200, 400, 600, 800, 1000, 1200, 1400, 1600, 1800]  # 任意の10個のseed値
+    # try:
+    #     train_val(dataset)
+    #     Test(dataset) # test the model
+    # except Exception as e:
+    #     with open("./results/error_log.txt", "w") as f:
+    #         f.write(traceback.format_exc())
+    #     print("[ERROR] error_log.txt ")
+
+    # seed_list = [
+    #     1132949301,
+    #     2643341749,
+    #     633340735,
+    #     756118265,
+    #     1527420486,
+    #     1441477941,
+    #     1276866379,
+    #     3072864098,
+    #     1268030903,
+    #     1050652309,
+    # ]
+
+    seed_list = [
+        1,
+        200,
+        400,
+        600,
+        800,
+        1000,
+        1200,
+        1400,
+        1600,
+        1800,
+    ]  # 任意の10個のseed値
 
     for idx, seed in enumerate(seed_list):
         print(f"\n========== Running experiment {idx+1}/10 with seed {seed} ==========")
 
+        # グローバル変数に再代入
         seed_n = seed
         random.seed(seed_n)
         np.random.seed(seed_n)
         torch.manual_seed(seed_n)
 
-        save_root = "./results/Physionet_results_replicate/{}_train_val_results/Model_{}/aug_{}/seed_{}/".format(
-            dataset, Model_name, num_augments, seed
-        )
+        # 結果保存ディレクトリを変更（シードごとに別保存）
+        save_root = f"./results/Within_Subj_results_replicate/{dataset}_train_val_results/Model_{Model_name}/aug_{num_augments}/seed_{seed}/"
+        # save_root = f'./results/Within_Subj_results_replica/te/{dataset}_train_val_results/Model_{Model_name}/seed_{seed}/'
         if not os.path.exists(save_root):
             os.makedirs(save_root)
 
         try:
             train_val(
-                dataset=dataset,
+                dataset,
                 num_augments=num_augments,
                 n_segments=n_segments,
                 segment_length=segment_length,
             )
-            Test(n_splits=10, dataset=dataset)
+            Test(dataset)
         except Exception as e:
             with open(f"./results/error_log_seed_{seed}.txt", "w") as f:
                 f.write(traceback.format_exc())

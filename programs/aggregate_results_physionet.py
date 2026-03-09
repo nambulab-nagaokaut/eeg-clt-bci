@@ -1,3 +1,9 @@
+"""
+Aggregate_results_physionet.py
+
+Aggregate test accuracies from multiple seeds and folds for Physionet dataset, and save to CSV.
+"""
+
 import os
 
 import pandas as pd
