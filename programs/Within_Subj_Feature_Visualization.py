@@ -13,6 +13,7 @@ t-SNE visualization of latent feature embeddings for within-subject MI-EEG model
 import argparse
 import os
 import random
+from pathlib import Path
 
 from Load_data import get_data
 from Model.CLT.CLT import CombinedModule
@@ -30,10 +31,13 @@ import torch
 import torch.nn as nn
 
 # Fixed experimental settings.
-# Change these values here when using a different subject or checkpoint.
+# Fixed experimental settings for the trained checkpoints.
 FIXED_SUBJECT = 1
-FIXED_SEED = 1132949301
+FIXED_SEED = 1400
 FIXED_NUM_AUGMENTS = 3
+
+project_root = Path("/workspaces/eeg-clt-bci")
+os.chdir(project_root)
 
 
 def set_seed(seed: int):
@@ -110,9 +114,9 @@ def get_model(model_name, config):
     if model_name == "CLT":
         model = CombinedModule(**config.CLT.Model_hyperparams)
     elif model_name == "EEGNet":
-        model = EEGNET(**config.EEGNet)
+        model = EEGNET(**config.EEGNet.Model_hyperparams)
     elif model_name == "Conformer":
-        model = Conformer(**config.EEGConformer)
+        model = Conformer(**config.EEGConformer.Model_hyperparams)
     elif model_name == "CTNet":
         model = CTNet(**config.CTNet.Model_hyperparams)
     elif model_name == "CLTNet":
@@ -326,6 +330,17 @@ def plot_tsne_multiple_models(
     class_names = get_class_names(dataset)
     n_models = len(tsne_results)
 
+    all_xy = np.vstack([item["xy"] for item in tsne_results])
+    x_min, x_max = np.min(all_xy[:, 0]), np.max(all_xy[:, 0])
+    y_min, y_max = np.min(all_xy[:, 1]), np.max(all_xy[:, 1])
+
+    x_margin = 0.05 * (x_max - x_min) if x_max > x_min else 1.0
+    y_margin = 0.05 * (y_max - y_min) if y_max > y_min else 1.0
+
+    common_xlim = (x_min - x_margin, x_max + x_margin)
+    common_ylim = (y_min - y_margin, y_max + y_margin)
+
+
     fig, axes = plt.subplots(
         1,
         n_models,
@@ -355,6 +370,9 @@ def plot_tsne_multiple_models(
             title += f"\nAcc.={accuracy * 100:.1f}%"
 
         ax.set_title(title)
+        ax.set_xlim(common_xlim)
+        ax.set_ylim(common_ylim)
+        ax.set_aspect("equal", adjustable="box")
         ax.set_xlabel("t-SNE dim. 1")
         ax.set_ylabel("t-SNE dim. 2")
 
@@ -454,7 +472,7 @@ def main():
     parser.add_argument(
         "--gpu",
         type=str,
-        default="1",
+        default="0",
         help="CUDA_VISIBLE_DEVICES setting.",
     )
     parser.add_argument(

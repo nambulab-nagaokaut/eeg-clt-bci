@@ -16,6 +16,7 @@ import os
 import platform
 import random
 import time
+from pathlib import Path
 
 from Load_data import get_data
 from Model.CLT.CLT import CombinedModule
@@ -29,8 +30,11 @@ from sklearn.model_selection import train_test_split
 import torch
 
 # Fixed experimental settings for the trained checkpoints.
-FIXED_SEED = 0
+FIXED_SEED = 1
 FIXED_NUM_AUGMENTS = 3
+
+project_root = Path("/workspaces/eeg-clt-bci")
+os.chdir(project_root)
 
 
 def set_seed(seed: int):
@@ -85,9 +89,9 @@ def get_model(model_name, config, device):
     if model_name == "CLT":
         model = CombinedModule(**config.CLT.Model_hyperparams)
     elif model_name == "EEGNet":
-        model = EEGNET(**config.EEGNet)
+        model = EEGNET(**config.EEGNet.Model_hyperparams)
     elif model_name == "Conformer":
-        model = Conformer(**config.EEGConformer)
+        model = Conformer(**config.EEGConformer.Model_hyperparams)
     elif model_name == "CTNet":
         model = CTNet(**config.CTNet.Model_hyperparams)
     elif model_name == "CLTNet":
@@ -326,7 +330,7 @@ def main():
     parser.add_argument(
         "--gpu",
         type=str,
-        default="1",
+        default="0",
         help="CUDA_VISIBLE_DEVICES setting.",
     )
     parser.add_argument(
