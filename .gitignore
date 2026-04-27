@@ -184,3 +184,6 @@ cython_debug/
 /results_*/
 *.pth
 
+# docker files
+Dockerfile
+.devcontainer/
