@@ -17,6 +17,7 @@ import os
 import random
 import time
 import traceback
+from pathlib import Path
 
 from Additional_Func import apply_max_norm, get_parameters_by_layer_type
 from Load_data import get_data
@@ -47,11 +48,8 @@ print(torch.cuda.current_device())
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 print(f"Using device: {device}")
 
-# seed_n = 1
-# print('seed is ' + str(seed_n))
-# random.seed(seed_n)
-# np.random.seed(seed_n)
-# torch.manual_seed(seed_n)
+project_root = Path("/workspaces/eeg-clt-bci")
+os.chdir(project_root)
 
 # Load Configuration file
 config = OmegaConf.load("./programs/Config/BCI_2a_within.yaml")
@@ -69,8 +67,8 @@ dataset = config.Dataset.name
 data_path = "./data/{}_gdf/".format(dataset)
 
 # Choose Model: CLT, EEGNet, Conformer
-# Model_name = "CLT"
-Model_name = "EEGNet"
+Model_name = "CLT"
+# Model_name = "EEGNet"
 # Model_name = "Conformer"
 # Model_name = "CTNet"
 # Model_name = "CLTNet"
