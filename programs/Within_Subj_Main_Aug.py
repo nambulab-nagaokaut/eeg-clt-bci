@@ -6,11 +6,12 @@ Main training and evaluation loop for within-subject experiments on BCI2a and BC
 
 import os
 
-gpus = [1]
+gpus = [0]
 os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
 os.environ["CUDA_VISIBLE_DEVICES"] = ",".join(map(str, gpus))
 # os.environ["CUDA_VISIBLE_DEVICES"] = "1"
 
+import csv
 import datetime
 import os
 import random
@@ -476,6 +477,9 @@ def train_val(dataset, num_augments=3, n_segments=8, segment_length=125):
             starttime = datetime.datetime.now()
             Best_Val_acc = 0
             Best_Val_loss = 5
+            Best_Epoch = 0
+            Best_Train_acc = 0
+            Best_Train_loss = 0
 
             for e in range(config.Training.n_epochs):
                 in_epoch = time.time()
@@ -495,28 +499,6 @@ def train_val(dataset, num_augments=3, n_segments=8, segment_length=125):
                     All_train_label_t = torch.tensor(
                         All_train_label, dtype=torch.long, device=device
                     )
-
-                    # # Data Augmentation
-                    # aug_data, aug_label = augment(All_train_data, All_train_label)
-                    # train_data = torch.cat((train_data, aug_data))
-                    # train_label = torch.cat((train_label, aug_label))
-
-                    # total_data = [train_data]
-                    # total_label = [train_label]
-                    # for aug_idx in range(num_augments):
-                    #     current_seed = seed_n + e * 1000 + aug_idx
-                    #     aug_data, aug_label = augment(
-                    #         All_train_data,
-                    #         All_train_label,
-                    #         seed=current_seed,
-                    #         n_segments=n_segments,
-                    #         segment_length=segment_length,
-                    #     )
-                    #     # print("Augmented data shape: ", aug_data.shape)
-                    #     total_data.append(aug_data)
-                    #     total_label.append(aug_label)
-                    # train_data = torch.cat(total_data, dim=0)
-                    # train_label = torch.cat(total_label, dim=0)
 
                     B = train_data.shape[0]  # drop_last=True なら B==batch_size
                     total_B = B * (1 + num_augments)
@@ -600,11 +582,27 @@ def train_val(dataset, num_augments=3, n_segments=8, segment_length=125):
                 if val_acc >= Best_Val_acc:
                     Best_Val_acc = val_acc
                     Best_Val_loss = val_loss
+                    Best_Epoch = e + 1
+                    Best_Train_acc = epoch_acc
+                    Best_Train_loss = epoch_loss
+
                     # Save Best model
                     check_point = torch.load(
                         save_root + "Subject_{}_best_model.pth".format(nSub + 1)
                     )
                     check_point["model_state_dict"] = model.state_dict()
+
+                    # Save metrics at the best-validation epoch
+                    check_point["best_epoch"] = int(Best_Epoch)
+                    check_point["best_train_acc"] = float(
+                        Best_Train_acc.detach().cpu().numpy()
+                    )
+                    check_point["best_train_loss"] = float(Best_Train_loss)
+                    check_point["best_val_acc"] = float(
+                        Best_Val_acc.detach().cpu().numpy()
+                    )
+                    check_point["best_val_loss"] = float(Best_Val_loss)
+
                     torch.save(
                         check_point,
                         save_root + "Subject_{}_best_model.pth".format(nSub + 1),
@@ -625,7 +623,16 @@ def train_val(dataset, num_augments=3, n_segments=8, segment_length=125):
             log_train.close()
 
             log_results.write(
-                "Best Val ACC: "
+                "Best Epoch: "
+                + str(Best_Epoch)
+                + "       "
+                + "Best Train ACC: "
+                + str(Best_Train_acc.detach().cpu().numpy())
+                + "       "
+                + "Best Train Loss: "
+                + str(Best_Train_loss)
+                + "       "
+                + "Best Val ACC: "
                 + str(Best_Val_acc.detach().cpu().numpy())
                 + "       "
                 + "Best Val Loss: "
@@ -653,6 +660,7 @@ def Test(dataset):
 
     Sub_accuracies = []
     conf_matries = []
+    summary_rows = []
     for nSub in range(9):
         conf_path = save_root + "Confusion matrices/"
         if not os.path.exists(conf_path):
@@ -686,6 +694,7 @@ def Test(dataset):
 
         correct = 0
         total = 0
+        test_running_loss = 0.0
 
         with torch.no_grad():
             True_label = []
@@ -695,15 +704,32 @@ def Test(dataset):
 
                 outputs = model(data)
 
+                loss_test = criterion_cls(outputs, targets)
+                test_running_loss += loss_test.item() * data.size(0)
+
                 _, predicted = torch.max(outputs.data, 1)
                 total += targets.size(0)
                 correct += (predicted == targets).sum().item()
+
                 True_label.append(targets)
                 Predicted_label.append(predicted)
             True_label = torch.cat(True_label, dim=0)
             Predicted_label = torch.cat(Predicted_label, dim=0)
 
         accuracy = correct / total
+        test_loss = test_running_loss / total
+        summary_rows.append(
+            {
+                "subject": nSub + 1,
+                "best_epoch": check_point.get("best_epoch", None),
+                "train_acc": check_point.get("best_train_acc", None),
+                "train_loss": check_point.get("best_train_loss", None),
+                "val_acc": check_point.get("best_val_acc", None),
+                "val_loss": check_point.get("best_val_loss", None),
+                "test_acc": accuracy,
+                "test_loss": test_loss,
+            }
+        )
         conf_matrix, norm_conf_matrix = confusion_matrix(
             true_label=True_label, predict_label=Predicted_label
         )
@@ -712,7 +738,9 @@ def Test(dataset):
         Sub_accuracies.append(accuracy)
 
         print(f"Test ACC: {accuracy * 100:.2f}%")
+        print(f"Test Loss: {test_loss:.6f}")
         log_results.write("Test Acc: {}".format(accuracy) + "\n")
+        log_results.write("Test Loss: {}".format(test_loss) + "\n")
 
         log_conf.write(
             "Test ACC: "
@@ -728,6 +756,23 @@ def Test(dataset):
     conf_plot(ave_conf, data_set=dataset)
     log_results.write("\n" + "-------------------" + "\n")
     log_results.write("Average Test Acc across 9 subjects: {}".format(ave_acc) + "\n")
+    summary_csv_path = save_root + "train_val_test_summary.csv"
+    with open(summary_csv_path, "w", newline="", encoding="UTF-8") as f:
+        fieldnames = [
+            "subject",
+            "best_epoch",
+            "train_acc",
+            "train_loss",
+            "val_acc",
+            "val_loss",
+            "test_acc",
+            "test_loss",
+        ]
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(summary_rows)
+
+    print("Summary metrics saved to:", summary_csv_path)
     log_results.close()
 
 
@@ -743,19 +788,6 @@ if __name__ == "__main__":
     #         f.write(traceback.format_exc())
     #     print("[ERROR] error_log.txt ")
 
-    # seed_list = [
-    #     1132949301,
-    #     2643341749,
-    #     633340735,
-    #     756118265,
-    #     1527420486,
-    #     1441477941,
-    #     1276866379,
-    #     3072864098,
-    #     1268030903,
-    #     1050652309,
-    # ]
-
     seed_list = [
         1,
         200,
@@ -767,7 +799,7 @@ if __name__ == "__main__":
         1400,
         1600,
         1800,
-    ]  # 任意の10個のseed値
+    ]  # arbitrary seeds for 10 replicates
 
     for idx, seed in enumerate(seed_list):
         print(f"\n========== Running experiment {idx+1}/10 with seed {seed} ==========")

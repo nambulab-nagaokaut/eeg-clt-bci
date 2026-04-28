@@ -8,6 +8,7 @@ import os
 import numpy as np
 import pandas as pd
 from scipy.stats import wilcoxon
+from statsmodels.stats.multitest import multipletests
 
 """
 This script extends the dataset-aware Wilcoxon test to include the subject-wise
@@ -86,8 +87,10 @@ if clt_key is None:
     )
 clt_data = models_data[clt_key]
 
-# Build results with subject means appended as columns
 results = []
+raw_p_values = []
+comparison_row_indices = []
+
 for model, data in models_data.items():
     mean_value = data.mean()
     sd_value = data.std()
@@ -99,26 +102,54 @@ for model, data in models_data.items():
     # Append per-subject seed means to the row
     for label, val in zip(subject_labels, data):
         row[f"{label} (%)"] = round(val, 3)
-    if model != clt_key:
-        stat, p_value = wilcoxon(clt_data, data)
-        row.update(
-            {
-                "Comparison": f"CLT vs {model}",
-                "Statistic": round(stat, 3),
-                "p-value": round(p_value, 5),
-                "Significant (p < 0.05)": "Yes" if p_value < 0.05 else "No",
-            }
-        )
+        if model != clt_key:
+            stat, p_value = wilcoxon(clt_data, data)
+            row.update(
+                {
+                    "Comparison": f"CLT vs {model}",
+                    "Statistic": round(stat, 3),
+                    "p-value": round(p_value, 5),
+                    "BH adjusted p-value": None,
+                    "Significant raw (p < 0.05)": "Yes" if p_value < 0.05 else "No",
+                    "Significant after BH-FDR (q < 0.05)": None,
+                }
+            )
+
+            raw_p_values.append(p_value)
+            comparison_row_indices.append(len(results))
     else:
         row.update(
             {
                 "Comparison": "CLT (self)",
                 "Statistic": None,
                 "p-value": None,
-                "Significant (p < 0.05)": None,
+                "BH adjusted p-value": None,
+                "Significant raw (p < 0.05)": None,
+                "Significant after BH-FDR (q < 0.05)": None,
             }
         )
     results.append(row)
+
+if raw_p_values:
+    rejected, adjusted_p_values, _, _ = multipletests(
+        raw_p_values,
+        alpha=0.05,
+        method="fdr_bh",
+    )
+
+    for row_idx, reject, adjusted_p in zip(
+        comparison_row_indices,
+        rejected,
+        adjusted_p_values,
+    ):
+        results[row_idx]["BH adjusted p-value"] = round(float(adjusted_p), 5)
+        results[row_idx]["Significant after BH-FDR (q < 0.05)"] = (
+            "Yes" if bool(reject) else "No"
+        )
+
+results_df = pd.DataFrame(results)
+output_path = f"./results/wilcoxon_results_subject_means_{dataset_name}.xlsx"
+results_df.to_excel(output_path, index=False)
 
 results_df = pd.DataFrame(results)
 output_path = f"./results/wilcoxon_results_subject_means_{dataset_name}.xlsx"

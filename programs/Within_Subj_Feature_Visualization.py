@@ -12,8 +12,8 @@ t-SNE visualization of latent feature embeddings for within-subject MI-EEG model
 
 import argparse
 import os
-import random
 from pathlib import Path
+import random
 
 from Load_data import get_data
 from Model.CLT.CLT import CombinedModule
@@ -25,6 +25,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from omegaconf import OmegaConf
 from sklearn.manifold import TSNE
+from sklearn.metrics import confusion_matrix
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
 import torch
@@ -340,7 +341,6 @@ def plot_tsne_multiple_models(
     common_xlim = (x_min - x_margin, x_max + x_margin)
     common_ylim = (y_min - y_margin, y_max + y_margin)
 
-
     fig, axes = plt.subplots(
         1,
         n_models,
@@ -390,6 +390,206 @@ def plot_tsne_multiple_models(
     fig.savefig(output_path_base + ".png", dpi=300, bbox_inches="tight")
     fig.savefig(output_path_base + ".pdf", bbox_inches="tight")
     plt.close(fig)
+
+
+def compute_row_normalized_confusion_matrix(labels, preds, dataset):
+    """
+    Compute raw and row-normalized confusion matrices.
+
+    Rows indicate true classes and columns indicate predicted classes.
+    The row-normalized matrix is expressed as percentages.
+    """
+    class_names = get_class_names(dataset)
+    cm = confusion_matrix(labels, preds, labels=np.arange(len(class_names)))
+
+    row_sums = cm.sum(axis=1, keepdims=True)
+    cm_percent = (
+        np.divide(
+            cm,
+            row_sums,
+            out=np.zeros_like(cm, dtype=np.float64),
+            where=row_sums != 0,
+        )
+        * 100.0
+    )
+
+    return cm, cm_percent
+
+
+def plot_confusion_matrix_single_model(
+    labels,
+    preds,
+    dataset,
+    model_name,
+    subject_number,
+    output_path_base,
+    normalize=True,
+):
+    """
+    Plot a confusion matrix for a single model.
+
+    Rows indicate true classes and columns indicate predicted classes.
+    If normalize=True, values are row-normalized percentages.
+    """
+    class_names = get_class_names(dataset)
+    cm, cm_percent = compute_row_normalized_confusion_matrix(labels, preds, dataset)
+    matrix_to_plot = cm_percent if normalize else cm.astype(np.float64)
+
+    fig, ax = plt.subplots(figsize=(5.4, 4.8))
+    im = ax.imshow(matrix_to_plot, interpolation="nearest")
+
+    cbar = fig.colorbar(im, ax=ax)
+    cbar.set_label("Percentage (%)" if normalize else "Number of trials")
+
+    ax.set_xticks(np.arange(len(class_names)))
+    ax.set_yticks(np.arange(len(class_names)))
+    ax.set_xticklabels(class_names, rotation=45, ha="right")
+    ax.set_yticklabels(class_names)
+    ax.set_xlabel("Predicted label")
+    ax.set_ylabel("True label")
+
+    accuracy = np.mean(preds == labels)
+    ax.set_title(f"{model_name}, Subject {subject_number}, Acc.={accuracy * 100:.1f}%")
+
+    threshold = matrix_to_plot.max() / 2.0 if matrix_to_plot.size > 0 else 0.0
+
+    for i in range(matrix_to_plot.shape[0]):
+        for j in range(matrix_to_plot.shape[1]):
+            if normalize:
+                text_value = f"{matrix_to_plot[i, j]:.1f}"
+            else:
+                text_value = f"{matrix_to_plot[i, j]:.0f}"
+
+            ax.text(
+                j,
+                i,
+                text_value,
+                ha="center",
+                va="center",
+                color="white" if matrix_to_plot[i, j] > threshold else "black",
+                fontsize=9,
+            )
+
+    fig.tight_layout()
+    fig.savefig(output_path_base + ".png", dpi=300, bbox_inches="tight")
+    fig.savefig(output_path_base + ".pdf", bbox_inches="tight")
+    plt.close(fig)
+
+    return cm, cm_percent
+
+
+def plot_confusion_matrix_multiple_models(
+    confusion_results,
+    dataset,
+    subject_number,
+    output_path_base,
+    normalize=True,
+):
+    """
+    Plot confusion matrices for multiple models in one horizontal figure.
+
+    confusion_results should be a list of dictionaries:
+    [
+        {"model": "EEGNet", "labels": labels, "preds": preds, "accuracy": acc},
+        ...
+    ]
+    """
+    class_names = get_class_names(dataset)
+    n_models = len(confusion_results)
+
+    matrices = []
+    for item in confusion_results:
+        cm, cm_percent = compute_row_normalized_confusion_matrix(
+            item["labels"],
+            item["preds"],
+            dataset,
+        )
+        matrices.append(cm_percent if normalize else cm.astype(np.float64))
+
+    vmax = max(np.max(matrix) for matrix in matrices) if matrices else 100.0
+
+    fig, axes = plt.subplots(
+        1,
+        n_models,
+        figsize=(4.8 * n_models, 4.4),
+        squeeze=False,
+    )
+    axes = axes[0]
+
+    im = None
+    for ax, item, matrix_to_plot in zip(axes, confusion_results, matrices):
+        im = ax.imshow(matrix_to_plot, interpolation="nearest", vmin=0, vmax=vmax)
+
+        model_name = item["model"]
+        accuracy = item.get("accuracy", None)
+        title = model_name
+        if accuracy is not None:
+            title += f"\nAcc.={accuracy * 100:.1f}%"
+
+        ax.set_title(title)
+        ax.set_xticks(np.arange(len(class_names)))
+        ax.set_yticks(np.arange(len(class_names)))
+        ax.set_xticklabels(class_names, rotation=45, ha="right")
+        ax.set_yticklabels(class_names)
+        ax.set_xlabel("Predicted")
+        ax.set_ylabel("True")
+
+        threshold = vmax / 2.0 if vmax > 0 else 0.0
+
+        for i in range(matrix_to_plot.shape[0]):
+            for j in range(matrix_to_plot.shape[1]):
+                if normalize:
+                    text_value = f"{matrix_to_plot[i, j]:.1f}"
+                else:
+                    text_value = f"{matrix_to_plot[i, j]:.0f}"
+
+                ax.text(
+                    j,
+                    i,
+                    text_value,
+                    ha="center",
+                    va="center",
+                    color="white" if matrix_to_plot[i, j] > threshold else "black",
+                    fontsize=8,
+                )
+
+    if im is not None:
+        cbar = fig.colorbar(im, ax=axes.ravel().tolist(), shrink=0.85)
+        cbar.set_label("Percentage (%)" if normalize else "Number of trials")
+
+    fig.suptitle(f"Confusion matrices, Subject {subject_number}", y=1.02)
+    fig.tight_layout()
+    fig.savefig(output_path_base + ".png", dpi=300, bbox_inches="tight")
+    fig.savefig(output_path_base + ".pdf", bbox_inches="tight")
+    plt.close(fig)
+
+
+def save_confusion_matrix_csv(labels, preds, dataset, output_path_base):
+    """
+    Save raw and row-normalized confusion matrices as CSV files.
+    """
+    class_names = get_class_names(dataset)
+    cm, cm_percent = compute_row_normalized_confusion_matrix(labels, preds, dataset)
+
+    raw_path = output_path_base + "_raw.csv"
+    percent_path = output_path_base + "_percent.csv"
+
+    np.savetxt(
+        raw_path,
+        cm,
+        delimiter=",",
+        fmt="%d",
+        header=",".join(class_names),
+        comments="",
+    )
+    np.savetxt(
+        percent_path,
+        cm_percent,
+        delimiter=",",
+        fmt="%.6f",
+        header=",".join(class_names),
+        comments="",
+    )
 
 
 def save_embeddings_csv(embeddings, tsne_xy, labels, preds, output_path):
@@ -527,6 +727,7 @@ def main():
     os.makedirs(output_dir, exist_ok=True)
 
     tsne_results = []
+    confusion_results = []
 
     for model_name in args.models:
         print(f"\nProcessing model: {model_name}")
@@ -556,6 +757,37 @@ def main():
         print("Target layer:", target_layer_name)
         print("Embedding shape:", embeddings.shape)
         print(f"Test accuracy: {accuracy * 100:.2f}%")
+
+        confusion_output_base = os.path.join(
+            output_dir,
+            f"confusion_{dataset}_Subject_{args.subject}_{model_name}",
+        )
+
+        plot_confusion_matrix_single_model(
+            labels=labels,
+            preds=preds,
+            dataset=dataset,
+            model_name=model_name,
+            subject_number=args.subject,
+            output_path_base=confusion_output_base,
+            normalize=True,
+        )
+
+        save_confusion_matrix_csv(
+            labels=labels,
+            preds=preds,
+            dataset=dataset,
+            output_path_base=confusion_output_base,
+        )
+
+        confusion_results.append(
+            {
+                "model": model_name,
+                "labels": labels,
+                "preds": preds,
+                "accuracy": accuracy,
+            }
+        )
 
         tsne_xy = run_tsne(
             embeddings=embeddings,
@@ -615,6 +847,29 @@ def main():
 
         print("Combined figure saved to:", combined_output_base + ".png")
         print("Combined figure saved to:", combined_output_base + ".pdf")
+
+    if len(confusion_results) >= 2:
+        combined_confusion_output_base = os.path.join(
+            output_dir,
+            f"confusion_{dataset}_Subject_{args.subject}_combined",
+        )
+
+        plot_confusion_matrix_multiple_models(
+            confusion_results=confusion_results,
+            dataset=dataset,
+            subject_number=args.subject,
+            output_path_base=combined_confusion_output_base,
+            normalize=True,
+        )
+
+        print(
+            "Combined confusion matrix saved to:",
+            combined_confusion_output_base + ".png",
+        )
+        print(
+            "Combined confusion matrix saved to:",
+            combined_confusion_output_base + ".pdf",
+        )
 
     print("\nDone.")
     print("Output directory:", output_dir)
