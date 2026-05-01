@@ -67,10 +67,10 @@ dataset = config.Dataset.name
 data_path = "./data/{}_gdf/".format(dataset)
 
 # Choose Model: CLT, EEGNet, Conformer
-Model_name = "CLT"
+# Model_name = "CLT"
 # Model_name = "EEGNet"
 # Model_name = "Conformer"
-# Model_name = "CTNet"
+Model_name = "CTNet"
 # Model_name = "CLTNet"
 print("Model name: ", Model_name)
 save_root = (
@@ -278,9 +278,9 @@ def get_model(model_name: str = "CLT"):
     if model_name == "CLT":
         model = CombinedModule(**config.CLT.Model_hyperparams).to(device)
     elif model_name == "EEGNet":
-        model = EEGNET(**config.EEGNet).to(device)
+        model = EEGNET(**config.EEGNet.Model_hyperparams).to(device)
     elif model_name == "Conformer":
-        model = Conformer(**config.EEGConformer).to(device)
+        model = Conformer(**config.EEGConformer.Model_hyperparams).to(device)
     elif model_name == "CTNet":
         model = CTNet(**config.CTNet.Model_hyperparams).to(device)
     elif model_name == "CLTNet":
