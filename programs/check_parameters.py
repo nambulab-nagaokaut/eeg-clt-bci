@@ -4,6 +4,9 @@ Check and print the number of trainable parameters for each model (CLT, CTNet, C
 
 """
 
+import os
+from pathlib import Path
+
 from Model.CLT.CLT import CombinedModule
 from Model.CTNet.CLTNet import EEGLTransformer as CLTNet
 from Model.CTNet.CTNet import EEGTransformer as CTNet
@@ -13,6 +16,9 @@ from omegaconf import OmegaConf
 import torch
 from torch import nn
 from torchinfo import summary
+
+project_root = Path("/workspaces/eeg-clt-bci")
+os.chdir(project_root)
 
 
 def count_parameters(model: nn.Module) -> int:

@@ -5,10 +5,15 @@ Aggregate test accuracies from multiple seeds and folds for Physionet dataset, a
 """
 
 import os
+from pathlib import Path
 
 import pandas as pd
 
 # ----------- Configuration ---------------
+
+project_root = Path("/workspaces/eeg-clt-bci")
+os.chdir(project_root)
+
 dataset = "Physionet"
 type = "Physionet"
 model_name_list = ["CLT", "CTNet", "CLTNet", "EEGNet", "Conformer"]

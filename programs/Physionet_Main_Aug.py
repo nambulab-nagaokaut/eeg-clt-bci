@@ -13,6 +13,7 @@ os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
 os.environ["CUDA_VISIBLE_DEVICES"] = ",".join(map(str, gpus))
 
 import datetime
+from pathlib import Path
 import random
 import time
 import traceback
@@ -40,6 +41,9 @@ import torchvision.transforms as transforms
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 print(f"Using device: {device}")
+
+project_root = Path("/workspaces/eeg-clt-bci")
+os.chdir(project_root)
 
 # Load Configuration file
 config = OmegaConf.load("./programs/Config/Physionet_LMSO.yaml")

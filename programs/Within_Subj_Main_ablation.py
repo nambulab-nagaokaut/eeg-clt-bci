@@ -11,6 +11,7 @@ os.environ["CUDA_VISIBLE_DEVICES"] = ",".join(map(str, gpus))
 
 import datetime
 import os
+from pathlib import Path
 import random
 import time
 import traceback
@@ -41,6 +42,8 @@ print(torch.cuda.current_device())
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 print(f"Using device: {device}")
 
+project_root = Path("/workspaces/eeg-clt-bci")
+os.chdir(project_root)
 
 # Load Configuration file
 config = OmegaConf.load("./programs/Config/BCI_2a_within_ablation.yaml")

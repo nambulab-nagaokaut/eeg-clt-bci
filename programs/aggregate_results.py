@@ -5,10 +5,14 @@ Aggregate test accuracies from multiple seeds and folds for BCI2a and BCI2b data
 """
 
 import os
+from pathlib import Path
 
 import pandas as pd
 
 # ----------- Configuration ---------------
+project_root = Path("/workspaces/eeg-clt-bci")
+os.chdir(project_root)
+
 dataset_list = ["BCI2a", "BCI2b"]
 dataset = dataset_list[1]
 model_name_list = [
