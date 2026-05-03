@@ -257,7 +257,7 @@ def load_data(nSub: int, dataset: str = "BCI2a"):
 
 
 def get_model(model_name: str = "CLT"):
-    if model_name == "CLT"| model_name == "CLT_lstm" or model_name == "CLT_pe"| model_name == "CLT_parallel"| model_name == "CLT_light":
+    if model_name == "CLT"or model_name == "CLT_lstm" or model_name == "CLT_pe" or model_name == "CLT_parallel" or model_name == "CLT_light":
         model = CombinedModule(**config.CLT.Model_hyperparams).to(device)
     # elif model_name == "CLT_lstm":
     #     model = CombinedModule_lstm(**config.CLT_lstm.Model_hyperparams).to(device)
