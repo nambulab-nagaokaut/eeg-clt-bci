@@ -21,6 +21,9 @@ from Load_data import get_data
 from Model.CLT.CLT import CombinedModule
 from Model.CLT.CLT_lstm import CombinedModule_lstm
 from Model.CLT.CLT_pe import CombinedModule_pe
+from Model.CLT.CLT_parallel import CombinedModule
+from Model.CLT.CLT_light import CombinedModule
+
 import matplotlib.pyplot as plt
 import numpy as np
 from omegaconf import OmegaConf
@@ -61,9 +64,12 @@ dataset = config.Dataset.name
 data_path = "./data/{}_gdf/".format(dataset)
 
 # Choose Model: CLT, EEGNet, Conformer
-Model_name = "CLT"
+#Model_name = "CLT"
 # Model_name = "CLT_lstm"
 # Model_name = "CLT_pe"
+Model_name = "CLT_parallel"
+# Model_name = "CLT_light"
+
 
 print("Model name: ", Model_name)
 save_root = (
@@ -251,12 +257,12 @@ def load_data(nSub: int, dataset: str = "BCI2a"):
 
 
 def get_model(model_name: str = "CLT"):
-    if model_name == "CLT":
+    if model_name == "CLT"| model_name == "CLT_lstm" or model_name == "CLT_pe"| model_name == "CLT_parallel"| model_name == "CLT_light":
         model = CombinedModule(**config.CLT.Model_hyperparams).to(device)
-    elif model_name == "CLT_lstm":
-        model = CombinedModule_lstm(**config.CLT_lstm.Model_hyperparams).to(device)
-    if model_name == "CLT_pe":
-        model = CombinedModule_pe(**config.CLT_pe.Model_hyperparams).to(device)
+    # elif model_name == "CLT_lstm":
+    #     model = CombinedModule_lstm(**config.CLT_lstm.Model_hyperparams).to(device)
+    # if model_name == "CLT_pe":
+        # model = CombinedModule_pe(**config.CLT_pe.Model_hyperparams).to(device)
     return model
 
 
@@ -335,11 +341,8 @@ def train_val(dataset, num_augments=3, n_segments=8, segment_length=125):
                 Model_name == "CLT"
                 or Model_name == "CLT_lstm"
                 or Model_name == "CLT_pe"
-                or Model_name == "CTL"
-                or Model_name == "TCL"
-                or Model_name == "TLC"
-                or Model_name == "LTC"
-                or Model_name == "LCT"
+                or Model_name == "CLT_parallel"
+                or Model_name == "CLT_light"
             ):
                 model_hyperparams["Optimizer_hyperparameters"] = (
                     config.CLT.Optimizer_hyperparams
@@ -386,9 +389,8 @@ def train_val(dataset, num_augments=3, n_segments=8, segment_length=125):
                 model_name == "CLT"
                 or model_name == "CLT_lstm"
                 or model_name == "CLT_pe"
-                or model_name == "CTL"
-                or model_name == "CL"
-                or model_name == "CT"
+                or model_name == "CLT_parallel"
+                or model_name == "CLT_light"    
             ):
                 print("CLT model or abalation models")
                 all_params = list(model.parameters())
