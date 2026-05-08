@@ -24,7 +24,7 @@ class Classifier(nn.Sequential):
         return out
 
 
-class CombinedParallelModule(nn.Module):
+class CombinedModule_parallel(nn.Module):
     def __init__(
         self,
         F1: int,
@@ -108,4 +108,3 @@ class CombinedParallelModule(nn.Module):
         return out
 
 
-CombinedModule = CombinedParallelModule

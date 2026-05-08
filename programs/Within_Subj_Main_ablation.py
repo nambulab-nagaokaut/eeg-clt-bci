@@ -21,8 +21,8 @@ from Load_data import get_data
 from Model.CLT.CLT import CombinedModule
 from Model.CLT.CLT_lstm import CombinedModule_lstm
 from Model.CLT.CLT_pe import CombinedModule_pe
-from Model.CLT.CLT_parallel import CombinedModule
-from Model.CLT.CLT_light import CombinedModule
+from Model.CLT.CLT_parallel import CombinedModule_parallel
+from Model.CLT.CLT_light import CombinedModule_light
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -257,12 +257,16 @@ def load_data(nSub: int, dataset: str = "BCI2a"):
 
 
 def get_model(model_name: str = "CLT"):
-    if model_name == "CLT"or model_name == "CLT_lstm" or model_name == "CLT_pe" or model_name == "CLT_parallel" or model_name == "CLT_light":
+    if model_name == "CLT":
         model = CombinedModule(**config.CLT.Model_hyperparams).to(device)
-    # elif model_name == "CLT_lstm":
-    #     model = CombinedModule_lstm(**config.CLT_lstm.Model_hyperparams).to(device)
-    # if model_name == "CLT_pe":
-        # model = CombinedModule_pe(**config.CLT_pe.Model_hyperparams).to(device)
+    elif model_name == "CLT_lstm":
+        model = CombinedModule_lstm(**config.CLT.Model_hyperparams).to(device)
+    if model_name == "CLT_pe":
+        model = CombinedModule_pe(**config.CLT.Model_hyperparams).to(device)
+    if model_name == "CLT_parallel":
+        model = CombinedModule_parallel(**config.CLT.Model_hyperparams).to(device)
+    if model_name == "CLT_light":
+        model = CombinedModule_light(**config.CLT.Model_hyperparams).to(device)
     return model
 
 
@@ -665,6 +669,8 @@ def Test(dataset):
 
 if __name__ == "__main__":
 
+    start = time.perf_counter()
+
     seed_list = [
         1,
         200,
@@ -706,3 +712,7 @@ if __name__ == "__main__":
             print(f"[ERROR] seed {seed}: error logged")
 
     print("finished Model name: ", Model_name)
+
+    elapsed_sec = time.perf_counter() - start
+    elapsed_min = elapsed_sec / 60
+    print(f"`Processing time`: {elapsed_min:.3f} minutes")

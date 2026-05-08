@@ -31,7 +31,7 @@ class Classifier(nn.Module):
         return out
 
 
-class CombinedModule(nn.Module):
+class CombinedModule_light(nn.Module):
     def __init__(
         self,
         F1: int,
@@ -64,7 +64,7 @@ class CombinedModule(nn.Module):
             num_classes (int, optional): Number of EEG classes (Tasks). Defaults to 4.
         """
 
-        super(CombinedModule, self).__init__()
+        super(CombinedModule_light, self).__init__()
         self.EEGN_Conv = ConvModule(F1=F1, D=D, EEGChans=EEGChans, Conv_drop=Conv_drop)
         _, seq_length, _ = self.EEGN_Conv(torch.rand(1, EEGChans, EEGSamples)).size()
         self.LSTM_drop = nn.Dropout(p=0.15)

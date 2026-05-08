@@ -69,8 +69,8 @@ data_path = "./data/{}_gdf/".format(dataset)
 # Choose Model: CLT, EEGNet, Conformer
 # Model_name = "CLT"
 # Model_name = "EEGNet"
-# Model_name = "Conformer"
-Model_name = "CTNet"
+Model_name = "Conformer"
+# Model_name = "CTNet"
 # Model_name = "CLTNet"
 print("Model name: ", Model_name)
 save_root = (

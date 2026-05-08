@@ -14,18 +14,21 @@ project_root = Path("/workspaces/eeg-clt-bci")
 os.chdir(project_root)
 
 dataset_list = ["BCI2a", "BCI2b"]
-dataset = dataset_list[1]
+dataset = dataset_list[0]
 model_name_list = [
     "CLT",
     "CTNet",
     "CLTNet",
     "EEGNet",
     "Conformer",
-    "CLT_lstm",
+    "CLT_lstm", 
+    "CLT_parallel",
+    "CLT_pe",
+    "CLT_light",
 ]
-model_name = model_name_list[0]
+model_name = model_name_list[6]
 type_list = ["LOSO", "Within_Subj"]
-type = type_list[0]
+type = type_list[1]
 num_augments = 3
 
 seed_list = [1, 200, 400, 600, 800, 1000, 1200, 1400, 1600, 1800]
