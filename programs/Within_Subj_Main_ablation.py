@@ -67,8 +67,8 @@ data_path = "./data/{}_gdf/".format(dataset)
 #Model_name = "CLT"
 # Model_name = "CLT_lstm"
 # Model_name = "CLT_pe"
-Model_name = "CLT_parallel"
-# Model_name = "CLT_light"
+# Model_name = "CLT_parallel"
+Model_name = "CLT_light"
 
 
 print("Model name: ", Model_name)

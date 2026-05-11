@@ -12,6 +12,7 @@ from Model.CTNet.CLTNet import EEGLTransformer as CLTNet
 from Model.CTNet.CTNet import EEGTransformer as CTNet
 from Model.Conformer import Conformer
 from Model.EEGNet import EEGNET
+from Model.CLT.CLT_light import CombinedModule_light
 from omegaconf import OmegaConf
 import torch
 from torch import nn
@@ -29,14 +30,14 @@ def main():
     device = "cpu"
 
     # BCI Competition IV 2a
-    # config = OmegaConf.load("./programs/Config/BCI_2a_within.yaml")
-    # n_classes, n_channels,input_samples = 4, 22, 1000 # 2a
+    config = OmegaConf.load("./programs/Config/BCI_2a_within.yaml")
+    n_classes, n_channels,input_samples = 4, 22, 1000 # 2a
 
     # config = OmegaConf.load("./programs/Config/BCI_2b_within.yaml")
     # n_classes, n_channels, input_samples = 2, 3, 1000  # 2b
 
-    config = OmegaConf.load("./programs/Config/Physionet_LMSO.yaml")
-    n_classes, n_channels, input_samples = 4, 64, 640  # physionet
+    # config = OmegaConf.load("./programs/Config/Physionet_LMSO.yaml")
+    # n_classes, n_channels, input_samples = 4, 64, 640  # physionet
 
     print(
         f"Number of classes: {n_classes}, channels: {n_channels}, input samples: {input_samples}"
@@ -47,6 +48,9 @@ def main():
     eeg_conformer = Conformer(**config.EEGConformer.Model_hyperparams).to(device)
     ctnet = CTNet(**config.CTNet.Model_hyperparams).to(device)
     cltnet = CLTNet(**config.CLTNet.Model_hyperparams).to(device)
+    eeg_clt_light = CombinedModule_light(
+        **config.CLT.Model_hyperparams
+    ).to(device)
 
     models = {
         "EEGNet": eegnet,
@@ -54,6 +58,7 @@ def main():
         "CTNet": ctnet,
         "CLTNet": cltnet,
         "EEG-CLT": eeg_clt,
+        "EEG-CLT-light": eeg_clt_light,
     }
 
     for name, m in models.items():

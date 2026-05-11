@@ -26,7 +26,7 @@ model_name_list = [
     "CLT_pe",
     "CLT_light",
 ]
-model_name = model_name_list[6]
+model_name = model_name_list[8]
 type_list = ["LOSO", "Within_Subj"]
 type = type_list[1]
 num_augments = 3
