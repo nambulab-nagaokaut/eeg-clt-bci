@@ -396,7 +396,7 @@ def train_val(dataset, num_augments=3, n_segments=8, segment_length=125):
                 or model_name == "CLT_parallel"
                 or model_name == "CLT_light"    
             ):
-                print("CLT model or abalation models")
+                print("CLT or ablation models")
                 all_params = list(model.parameters())
                 EEGN_Conv_params = get_parameters_by_layer_type(
                     model.EEGN_Conv, nn.Conv2d
