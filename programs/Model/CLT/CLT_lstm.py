@@ -24,6 +24,24 @@ class Classifier(nn.Sequential):
         x = x.contiguous().view(x.size(0), -1)  #mark
         out = self.fc(x)
         return out
+
+class Classifier_light(nn.Module):
+    """CLTNet-like lightweight classifier.
+
+    This classifier flattens the feature sequence and applies a single linear
+    layer. It is used to evaluate whether the original EEG-CLT performance
+    depends on the larger three-layer fully connected classifier.
+    """
+
+    def __init__(self, input_dim, num_classes):
+        super().__init__()
+        self.flatten = nn.Flatten()
+        self.fc = nn.Linear(input_dim, num_classes)
+
+    def forward(self, x):
+        x = self.flatten(x)
+        out = self.fc(x)
+        return out
     
 class CombinedModule_lstm(nn.Module):
     def __init__(self, F1:int, D:int, input_size:int, hidden_size:int, EEGChans: int =22, EEGSamples: int =1000, 
@@ -51,7 +69,8 @@ class CombinedModule_lstm(nn.Module):
         self.LSTM = LSTMLayer(input_size=input_size, hidden_size=hidden_size) # normal LSTM
 
         self.Transformer = TransformerEncoder(embed_dim=hidden_size,numheads=numheads,depth=depth)
-        self.Classify = Classifier(input_dim=hidden_size*seq_length, num_classes=num_classes)
+        # self.Classify = Classifier(input_dim=hidden_size*seq_length, num_classes=num_classes)
+        self.Classify = Classifier_light(input_dim=hidden_size*seq_length, num_classes=num_classes)
 
     def forward(self,x):
         x = self.EEGN_Conv(x)

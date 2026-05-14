@@ -39,7 +39,7 @@ CLT_pe:
     F1: 13
     D: 4
     input_size: 52  #13*4
-    hidden_size: 60
+    hidden_size: 32
     EEGChans: ${Dataset.EEGchannels}
     EEGSamples: ${Dataset.samples} 
     Conv_drop: 0.5 
@@ -56,7 +56,7 @@ CLT_parallel:
     F1: 13
     D: 4
     input_size: 52  #13*4
-    hidden_size: 60
+    hidden_size: 32
     EEGChans: ${Dataset.EEGchannels}
     EEGSamples: ${Dataset.samples} 
     Conv_drop: 0.5 
@@ -73,7 +73,7 @@ CLT_lstm:
     F1: 13
     D: 4
     input_size: 52  #13*4
-    hidden_size: 60
+    hidden_size: 32
     EEGChans: ${Dataset.EEGchannels}
     EEGSamples: ${Dataset.samples} 
     Conv_drop: 0.5 

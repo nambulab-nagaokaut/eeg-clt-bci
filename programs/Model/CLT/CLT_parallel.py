@@ -4,6 +4,24 @@ from Model.CLT.sLSTM import sLSTMLayer
 import torch
 import torch.nn as nn
 
+class Classifier_light(nn.Module):
+    """CLTNet-like lightweight classifier.
+
+    This classifier flattens the feature sequence and applies a single linear
+    layer. It is used to evaluate whether the original EEG-CLT performance
+    depends on the larger three-layer fully connected classifier.
+    """
+
+    def __init__(self, input_dim, num_classes):
+        super().__init__()
+        self.flatten = nn.Flatten()
+        self.fc = nn.Linear(input_dim, num_classes)
+
+    def forward(self, x):
+        x = self.flatten(x)
+        out = self.fc(x)
+        return out
+
 
 class Classifier(nn.Sequential):
     def __init__(self, input_dim, num_classes):
@@ -83,11 +101,17 @@ class CombinedModule_parallel(nn.Module):
             depth=depth,
         )
 
-        # Concat fusion doubles the feature dimension.
-        self.Classify = Classifier(
+        # Concat fusion doubles the feature dimension. with light classifier, the input dimension is 2 * hidden_size * seq_length.
+        self.Classify = Classifier_light(
             input_dim=2 * hidden_size * seq_length,
             num_classes=num_classes,
         )
+
+        # # Concat fusion doubles the feature dimension.
+        # self.Classify = Classifier(
+        #     input_dim=2 * hidden_size * seq_length,
+        #     num_classes=num_classes,
+        # )
 
     def forward(self, x):
         x = self.EEGN_Conv(x)
