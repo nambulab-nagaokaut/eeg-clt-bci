@@ -24,10 +24,10 @@ Usage:
 """
 
 # Specify the dataset: 'BCI2a', 'BCI2b', or 'Physionet'
-dataset_name = "BCI2aLOSO"  # modify this as needed
+dataset_name = "BCI2a"  # modify this as needed
 
 # Directory containing the CSV files
-file_dir = "./result_2026"
+file_dir = "./results"
 
 # Model identifiers to analyze
 models = [

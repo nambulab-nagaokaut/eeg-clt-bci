@@ -11,12 +11,6 @@ from scipy.stats import wilcoxon
 from statsmodels.stats.multitest import multipletests
 
 """
-This script extends the dataset-aware Wilcoxon test to include the subject-wise
-seed means as additional columns in the output table. Each model is compared
-against the CLT model using the Wilcoxon signed-rank test on subject-level
-averages (across seeds), and the resulting DataFrame includes the mean and
-standard deviation for each model as well as the per-subject mean values.
-
 Usage:
     Set `dataset_name` below to 'BCI2a', 'BCI2b', or 'Physionet'.
     Ensure the CSV files follow the naming pattern: summary_<dataset>_<model>_<version>_acc_results.csv.
@@ -24,14 +18,15 @@ Usage:
 """
 
 # Specify the dataset: 'BCI2a', 'BCI2b', or 'Physionet'
-dataset_name = "BCI2aLOSO"  # modify this as needed
+dataset_name = "BCI2a"  # modify this as needed
 
 # Directory containing the CSV files
-file_dir = "./result_2026"
+file_dir = "./results"
 
 # Model identifiers to analyze
 models = [
     "CLT",
+    "CLT_light",
     "CLT_pe",
     "CLT_lstm",
     "CLT_parallel",
@@ -74,15 +69,22 @@ for file in csv_files:
             subject_labels = ["Mean_Test_Acc"]
     models_data[model_name] = values
 
-# Identify CLT model
+# Specify the reference model to compare against.
+# This must match one of the model identifiers in the `models` list above.
+reference_model = "CLT"
+reference_file = f"summary_{dataset_name}_{reference_model}_{version}_acc_results"
+
+# Identify reference model from the generated CSV basename.
 clt_key = None
 for key in models_data:
-    if "clt" in key.lower():
+    if key == reference_file:
         clt_key = key
         break
 if clt_key is None:
+    available_models = "\n".join(f"- {key}" for key in models_data)
     raise ValueError(
-        "No file name contains 'CLT'. Please include 'CLT' in the CLT model file name."
+        f"Reference model file was not found: {reference_file}\n"
+        f"Available model files are:\n{available_models}"
     )
 clt_data = models_data[clt_key]
 
@@ -105,7 +107,7 @@ for model, data in models_data.items():
             stat, p_value = wilcoxon(clt_data, data)
             row.update(
                 {
-                    "Comparison": f"CLT vs {model}",
+                    "Comparison": f"{clt_key} vs {model}",
                     "Statistic": round(stat, 3),
                     "p-value": round(p_value, 5),
                     "BH adjusted p-value": None,
@@ -119,7 +121,7 @@ for model, data in models_data.items():
     else:
         row.update(
             {
-                "Comparison": "CLT (self)",
+                "Comparison": f"{clt_key} (self)",
                 "Statistic": None,
                 "p-value": None,
                 "BH adjusted p-value": None,
@@ -146,9 +148,6 @@ if raw_p_values:
             "Yes" if bool(reject) else "No"
         )
 
-results_df = pd.DataFrame(results)
-output_path = f"./results/wilcoxon_results_subject_means_{dataset_name}.xlsx"
-results_df.to_excel(output_path, index=False)
 
 results_df = pd.DataFrame(results)
 output_path = f"./results/wilcoxon_results_subject_means_{dataset_name}.xlsx"
