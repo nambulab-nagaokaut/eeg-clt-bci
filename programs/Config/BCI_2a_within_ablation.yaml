@@ -22,12 +22,12 @@ CLT:
     F1: 13
     D: 4
     input_size: 52  #13*4
-    hidden_size: 32 #60
+    hidden_size: 60
     EEGChans: ${Dataset.EEGchannels}
     EEGSamples: ${Dataset.samples} 
     Conv_drop: 0.5 
     numheads: 4
-    depth: 2
+    depth: 6
     num_classes: ${Dataset.num_classes}
   Optimizer_hyperparams:
     Conv_Decay:  0.001 
@@ -90,7 +90,7 @@ CLT_light:
     F1: 13
     D: 4
     input_size: 52  #13*4
-    hidden_size: 32 #60
+    hidden_size: 60 #60
     EEGChans: ${Dataset.EEGchannels}
     EEGSamples: ${Dataset.samples} 
     Conv_drop: 0.5 

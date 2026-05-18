@@ -30,7 +30,7 @@ def main():
     device = "cpu"
 
     # BCI Competition IV 2a
-    config = OmegaConf.load("./programs/Config/BCI_2a_within.yaml")
+    config = OmegaConf.load("./programs/Config/BCI_2a_within_ablation.yaml")
     n_classes, n_channels,input_samples = 4, 22, 1000 # 2a
 
     # config = OmegaConf.load("./programs/Config/BCI_2b_within.yaml")
@@ -49,7 +49,7 @@ def main():
     ctnet = CTNet(**config.CTNet.Model_hyperparams).to(device)
     cltnet = CLTNet(**config.CLTNet.Model_hyperparams).to(device)
     eeg_clt_light = CombinedModule_light(
-        **config.CLT.Model_hyperparams
+        **config.CLT_light.Model_hyperparams
     ).to(device)
 
     models = {

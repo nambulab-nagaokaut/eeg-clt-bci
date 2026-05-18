@@ -4,7 +4,7 @@ Perform Wilcoxon signed-rank tests comparing each model against the CLT model us
 """
 
 import os
-
+from pathlib import Path
 import numpy as np
 import pandas as pd
 from scipy.stats import wilcoxon
@@ -26,8 +26,11 @@ Usage:
 # Specify the dataset: 'BCI2a', 'BCI2b', or 'Physionet'
 dataset_name = "BCI2a"  # modify this as needed
 
+project_root = Path("/workspaces/eeg-clt-bci")
+os.chdir(project_root)
+
 # Directory containing the CSV files
-file_dir = "./results"
+file_dir = "./results/Within_Subj_results_replicate/BCI2a_train_val_results/"  # modify this as needed 
 
 # Model identifiers to analyze
 models = [
@@ -36,6 +39,7 @@ models = [
     "Conformer",
     "CTNet",
     "CLTNet",
+    "CLT_light",
 ]
 
 # Determine version suffix based on dataset
@@ -75,15 +79,22 @@ for file in csv_files:
             subject_labels = ["Mean_Test_Acc"]
     models_data[model_name] = values
 
-# Identify CLT model
+# Specify the reference model to compare against.
+# This must match one of the model identifiers in the `models` list above.
+reference_model = "CLT_light"
+reference_file = f"summary_{dataset_name}_{reference_model}_{version}_acc_results"
+
+# Identify reference model from the generated CSV basename.
 clt_key = None
 for key in models_data:
-    if "clt" in key.lower():
+    if key == reference_file:
         clt_key = key
         break
 if clt_key is None:
+    available_models = "\n".join(f"- {key}" for key in models_data)
     raise ValueError(
-        "No file name contains 'CLT'. Please include 'CLT' in the CLT model file name."
+        f"Reference model file was not found: {reference_file}\n"
+        f"Available model files are:\n{available_models}"
     )
 clt_data = models_data[clt_key]
 

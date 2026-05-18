@@ -4,7 +4,7 @@ Perform Wilcoxon signed-rank tests comparing each model against the CLT model us
 """
 
 import os
-
+from pathlib import Path
 import numpy as np
 import pandas as pd
 from scipy.stats import wilcoxon
@@ -20,8 +20,11 @@ Usage:
 # Specify the dataset: 'BCI2a', 'BCI2b', or 'Physionet'
 dataset_name = "BCI2a"  # modify this as needed
 
+project_root = Path("/workspaces/eeg-clt-bci")
+os.chdir(project_root)
+
 # Directory containing the CSV files
-file_dir = "./results"
+file_dir = "./results/Within_Subj_results_replicate/BCI2a_train_val_results/"  # modify this as needed 
 
 # Model identifiers to analyze
 models = [
