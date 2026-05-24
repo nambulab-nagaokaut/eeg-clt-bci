@@ -352,8 +352,8 @@ def train_val(dataset, num_augments=3, n_segments=8, segment_length=125):
                 "w",
                 encoding="UTF-8",
             )
-            log_train.write("Epoch " + "Train ACC " + "Train Loss" + "\n")
-
+            log_train.write("Epoch Train_ACC Train_Loss Val_ACC Val_Loss\n")
+        
             # Save hyperparams of each subject
             torch.save(
                 {
@@ -488,9 +488,6 @@ def train_val(dataset, num_augments=3, n_segments=8, segment_length=125):
                 total = 0
                 for i, (train_data, train_label) in enumerate(train_loader):
 
-                    # train_data = Variable(train_data.to(device))
-                    # train_label = Variable(train_label.to(device))
-
                     All_train_data_t = torch.tensor(
                         All_train_data, dtype=torch.float32, device=device
                     )
@@ -528,15 +525,12 @@ def train_val(dataset, num_augments=3, n_segments=8, segment_length=125):
 
                     train_data, train_label = x, y
 
-                    # print(
-                    #     f"[Epoch {e+1}] Total training samples after augmentation: {train_data.size(0)}"
-                    # )
-
+                    # Forward pass
                     optimizer.zero_grad()
                     outputs = model(train_data)
-
                     loss = criterion_cls(outputs, train_label)
 
+                    # Backward pass
                     loss.backward()
                     optimizer.step()
 
@@ -547,14 +541,6 @@ def train_val(dataset, num_augments=3, n_segments=8, segment_length=125):
                     total += train_label.size(0)
                 epoch_loss = running_loss / total
                 epoch_acc = running_corrects.double() / total
-                log_train.write(
-                    str(e + 1)
-                    + " "
-                    + str(epoch_acc.detach().cpu().numpy())
-                    + " "
-                    + str(epoch_loss)
-                    + "\n"
-                )
 
                 # Evaluation Loop
                 model.eval()
@@ -576,7 +562,18 @@ def train_val(dataset, num_augments=3, n_segments=8, segment_length=125):
                         val_total += val_label.size(0)
                 val_loss = val_running_loss / val_total
                 val_acc = val_running_corrects.double() / val_total
-
+                log_train.write(
+                    str(e + 1)
+                    + " "
+                    + str(epoch_acc.detach().cpu().numpy())
+                    + " "
+                    + str(epoch_loss)
+                    + " "
+                    + str(val_acc.detach().cpu().numpy())
+                    + " "
+                    + str(val_loss)
+                    + "\n"
+                )
                 if val_acc >= Best_Val_acc:
                     Best_Val_acc = val_acc
                     Best_Val_loss = val_loss

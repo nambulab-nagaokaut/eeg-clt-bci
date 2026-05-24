@@ -15,6 +15,7 @@ from pathlib import Path
 import random
 import time
 import traceback
+import csv
 
 from Additional_Func import apply_max_norm, get_parameters_by_layer_type
 from Load_data import LOSO
@@ -46,6 +47,7 @@ device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 print(f"Using device: {device}")
 
 project_root = Path("/workspaces/eeg-clt-bci")
+# project_root = Path("/workspaces/EEG-CLT")
 os.chdir(project_root)
 
 # Load Configuration file
@@ -66,10 +68,11 @@ data_path = "./data/{}_gdf/".format(dataset)
 
 # --- Choose Model: CLT, EEGNet, Conformer ----
 # Model_name = "CLT"
-Model_name = "EEGNet"
+# Model_name = "EEGNet"
 # Model_name = "Conformer"
 # Model_name = "CTNet"
 # Model_name = "CLTNet"
+Model_name = "CLT_light"
 print("Model name: ", Model_name)
 
 
@@ -188,6 +191,8 @@ def augment(timg, label, seed=0, n_segments=8, segment_length=125):
 def get_model(model_name: str = "CLT"):
     if model_name == "CLT":
         model = CombinedModule(**config.CLT.Model_hyperparams).to(device)
+    elif model_name == "CLT_light":
+        model = CombinedModule(**config.CLT_light.Model_hyperparams).to(device)
     elif model_name == "EEGNet":
         model = EEGNET(**config.EEGNet.Model_hyperparams).to(device)
     elif model_name == "Conformer":
@@ -264,9 +269,8 @@ def train_val(dataset, num_augments=3, n_segments=8, segment_length=125):
                 "w",
                 encoding="UTF-8",
             )
-            log_train.write(
-                "Epoch " + "Train ACC " + "Train Loss" + "Val ACC " + "Val Loss" + "\n"
-            )
+            log_train.write("Epoch Train_ACC Train_Loss Val_ACC Val_Loss\n")
+            
             # Save hyperparams of each KFold iteration
             model_key = Model_name if Model_name != "Conformer" else "EEGConformer"
             model_hyperparams = {
@@ -276,6 +280,11 @@ def train_val(dataset, num_augments=3, n_segments=8, segment_length=125):
                 model_hyperparams["Optimizer_hyperparameters"] = (
                     config.CLT.Optimizer_hyperparams
                 )
+            elif Model_name == "CLT_light":
+                model_hyperparams["Optimizer_hyperparameters"] = (
+                    config.CLT_light.Optimizer_hyperparams
+                )
+                
             torch.save(
                 model_hyperparams, save_root + "Fold_{}_best_model.pth".format(k + 1)
             )
@@ -344,6 +353,70 @@ def train_val(dataset, num_augments=3, n_segments=8, segment_length=125):
                     lr=config.Training.lr,
                     betas=(config.Training.b1, config.Training.b2),
                 )
+            elif model_name == "CLT_light":
+                all_params = list(model.parameters())
+                EEGN_Conv_params = get_parameters_by_layer_type(
+                    model.EEGN_Conv, nn.Conv2d
+                )
+                Linear_params = get_parameters_by_layer_type(model.Classify, nn.Linear)
+
+                param_ids = set()
+                param_ids.update(id(param) for param in EEGN_Conv_params)
+                param_ids.update(id(param) for param in Linear_params)
+                Other_params = [
+                    param for param in all_params if id(param) not in param_ids
+                ]
+
+                optimizer = torch.optim.AdamW(
+                    [
+                        {
+                            "params": EEGN_Conv_params,
+                            "weight_decay": config.CLT_light.Optimizer_hyperparams[
+                                "Conv_Decay"
+                            ],
+                        },
+                        {
+                            "params": Linear_params,
+                            "weight_decay": config.CLT_light.Optimizer_hyperparams[
+                                "Linear_Decay"
+                            ],
+                        },
+                    ],
+                    lr=config.Training.lr,
+                    betas=(config.Training.b1, config.Training.b2),
+                )           
+            elif model_name == "CLT_light":
+                all_params = list(model.parameters())
+                EEGN_Conv_params = get_parameters_by_layer_type(
+                    model.EEGN_Conv, nn.Conv2d
+                )
+                Linear_params = get_parameters_by_layer_type(model.Classify, nn.Linear)
+
+                param_ids = set()
+                param_ids.update(id(param) for param in EEGN_Conv_params)
+                param_ids.update(id(param) for param in Linear_params)
+                Other_params = [
+                    param for param in all_params if id(param) not in param_ids
+                ]
+
+                optimizer = torch.optim.AdamW(
+                    [
+                        {
+                            "params": EEGN_Conv_params,
+                            "weight_decay": config.CLT_light.Optimizer_hyperparams[
+                                "Conv_Decay"
+                            ],
+                        },
+                        {
+                            "params": Linear_params,
+                            "weight_decay": config.CLT_light.Optimizer_hyperparams[
+                                "Linear_Decay"
+                            ],
+                        },
+                    ],
+                    lr=config.Training.lr,
+                    betas=(config.Training.b1, config.Training.b2),
+                )
 
             elif model_name == "EEGNet":
                 optimizer = torch.optim.AdamW(
@@ -386,6 +459,10 @@ def train_val(dataset, num_augments=3, n_segments=8, segment_length=125):
             counter = 0
             patience = 1000  # Epochs
             best_epoch = 0
+            Best_Train_acc = 0
+            Best_Train_loss = 0
+
+
             for e in range(config.Training.n_epochs):
                 in_epoch = time.time()
                 # Train Loop
@@ -480,7 +557,6 @@ def train_val(dataset, num_augments=3, n_segments=8, segment_length=125):
                     + str(val_loss)
                     + "\n"
                 )
-
                 # print('Epoch:', e+1,
                 #             '  Train loss: %.6f' % epoch_loss,
                 #             '  Val loss: %.6f' % val_loss,
@@ -496,14 +572,26 @@ def train_val(dataset, num_augments=3, n_segments=8, segment_length=125):
                     Best_Val_acc = val_acc
                     Best_Val_loss = val_loss
                     best_epoch = e + 1
+                    Best_Train_acc = epoch_acc
+                    Best_Train_loss = epoch_loss
+
                     # Save Best model
                     check_point = torch.load(
                         save_root + "Fold_{}_best_model.pth".format(k + 1)
                     )
                     check_point["model_state_dict"] = model.state_dict()
+
+                    check_point["best_epoch"] = int(best_epoch)
+                    check_point["best_train_acc"] = float(Best_Train_acc.detach().cpu().numpy())
+                    check_point["best_train_loss"] = float(Best_Train_loss)
+                    check_point["best_val_acc"] = float(Best_Val_acc.detach().cpu().numpy())
+                    check_point["best_val_loss"] = float(Best_Val_loss)
+
                     torch.save(
-                        check_point, save_root + "Fold_{}_best_model.pth".format(k + 1)
+                        check_point,
+                        save_root + "Fold_{}_best_model.pth".format(k + 1),
                     )
+
                     print(f"--> Save Best Model at epoch {e+1}")
                 else:  # Early stopping
                     counter += 1
@@ -550,8 +638,9 @@ def Test(dataset):
     log_results = open(test_result_path + "Test_Acc_log.txt", "w", encoding="UTF-8")
 
     Sub_accuracies = []
-    Sub_best_accuracies = []
     conf_matries = []
+    summary_rows = []
+
     for nSub in range(9):
         conf_path = test_result_path + "Confusion matrices/"
         if not os.path.exists(conf_path):
@@ -588,6 +677,7 @@ def Test(dataset):
 
         correct = 0
         total = 0
+        test_running_loss = 0.0
 
         with torch.no_grad():
             True_label = []
@@ -595,6 +685,8 @@ def Test(dataset):
             for data, targets in test_loader:
                 data, targets = data.cuda(), targets.cuda()
                 outputs = model(data)
+                loss_test = criterion_cls(outputs, targets)
+                test_running_loss += loss_test.item() * data.size(0)
                 _, predicted = torch.max(outputs.data, 1)
                 total += targets.size(0)
                 correct += (predicted == targets).sum().item()
@@ -604,6 +696,19 @@ def Test(dataset):
             Predicted_label = torch.cat(Predicted_label, dim=0)
 
         accuracy = correct / total
+        test_loss = test_running_loss / total
+        summary_rows.append(
+            {
+                "fold": nSub + 1,
+                "best_epoch": check_point.get("best_epoch", None),
+                "train_acc": check_point.get("best_train_acc", None),
+                "train_loss": check_point.get("best_train_loss", None),
+                "val_acc": check_point.get("best_val_acc", None),
+                "val_loss": check_point.get("best_val_loss", None),
+                "test_acc": accuracy,
+                "test_loss": test_loss,
+            }
+        )
         conf_matrix, norm_conf_matrix = confusion_matrix(
             true_label=True_label, predict_label=Predicted_label
         )
@@ -612,7 +717,10 @@ def Test(dataset):
         Sub_accuracies.append(accuracy)
 
         print(f"Test ACC: {accuracy * 100:.2f}%")
+        print(f"Test Loss: {test_loss:.6f}")
         log_results.write("Test Acc: {}".format(accuracy) + "\n")
+        log_results.write("Test Loss: {}".format(test_loss) + "\n")
+
 
         log_conf.write(
             "Test ACC: "
@@ -628,6 +736,22 @@ def Test(dataset):
     conf_plot(ave_conf, data_set=dataset)
     log_results.write("\n" + "-------------------" + "\n")
     log_results.write("Average Test Acc across 9 subjects: {}".format(ave_acc) + "\n")
+    summary_csv_path = test_result_path + "train_val_test_summary.csv"
+    with open(summary_csv_path, "w", newline="", encoding="UTF-8") as f:
+        fieldnames = [
+            "fold",
+            "best_epoch",
+            "train_acc",
+            "train_loss",
+            "val_acc",
+            "val_loss",
+            "test_acc",
+            "test_loss",
+        ]
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(summary_rows)
+    print("Summary metrics saved to:", summary_csv_path)   
     log_results.close()
 
 
