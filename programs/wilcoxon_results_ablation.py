@@ -1,6 +1,5 @@
 """
-wilcoxon_results_all.py
-Perform Wilcoxon signed-rank tests comparing each model against the CLT model using subject-wise seed means from the aggregated results CSV files for BCI2a, BCI2b, and Physionet datasets. The output includes mean, SD, per-subject means, and test statistics in an Excel file.
+wilcoxon_results_ablation.py
 """
 
 import os
@@ -12,10 +11,11 @@ from statsmodels.stats.multitest import multipletests
 
 """
 Usage:
-    Set `dataset_name` below to 'BCI2a', 'BCI2b', or 'Physionet'.
+    Set `dataset_name` below to 'BCI2a'
     Ensure the CSV files follow the naming pattern: summary_<dataset>_<model>_<version>_acc_results.csv.
-    The version defaults to 'aug3' for BCI2a/BCI2b and 'aug1' for Physionet.
+   
 """
+version = "aug3"  
 
 # Specify the dataset: 'BCI2a', 'BCI2b', or 'Physionet'
 dataset_name = "BCI2a"  # modify this as needed
@@ -34,10 +34,6 @@ models = [
     "CLT_lstm",
     "CLT_parallel",
 ]
-
-# Determine version suffix based on dataset
-version = "aug1" if dataset_name.lower() == "physionet" else "aug3"
-
 # Assemble CSV filenames automatically
 csv_files = [
     f"{file_dir}/summary_{dataset_name}_{model}_{version}_acc_results.csv"
@@ -49,6 +45,8 @@ models_data = {}
 subject_labels = None
 for file in csv_files:
     model_name = os.path.splitext(os.path.basename(file))[0]
+
+
     if not os.path.exists(file):
         raise FileNotFoundError(f"CSV file not found: {file}")
     df = pd.read_csv(file)
@@ -74,7 +72,7 @@ for file in csv_files:
 
 # Specify the reference model to compare against.
 # This must match one of the model identifiers in the `models` list above.
-reference_model = "CLT"
+reference_model = "CLT_light"
 reference_file = f"summary_{dataset_name}_{reference_model}_{version}_acc_results"
 
 # Identify reference model from the generated CSV basename.
@@ -97,34 +95,38 @@ comparison_row_indices = []
 
 for model, data in models_data.items():
     mean_value = data.mean()
-    sd_value = data.std()
+    sd_value = data.std(ddof=1)
+
     row = {
         "Model": model,
-        "Mean (%)": round(mean_value, 3),
-        "SD (%)": round(sd_value, 3),
+        "Mean (%)": round(mean_value, 1),
+        "SD (%)": round(sd_value, 1),
     }
-    # Append per-subject seed means to the row
-    for label, val in zip(subject_labels, data):
-        row[f"{label} (%)"] = round(val, 3)
-        if model != clt_key:
-            stat, p_value = wilcoxon(clt_data, data)
-            row.update(
-                {
-                    "Comparison": f"{clt_key} vs {model}",
-                    "Statistic": round(stat, 3),
-                    "p-value": round(p_value, 5),
-                    "BH adjusted p-value": None,
-                    "Significant raw (p < 0.05)": "Yes" if p_value < 0.05 else "No",
-                    "Significant after BH-FDR (q < 0.05)": None,
-                }
-            )
 
-            raw_p_values.append(p_value)
-            comparison_row_indices.append(len(results))
+    for label, val in zip(subject_labels, data):
+        row[f"{label} (%)"] = round(val, 1)
+
+    if model != clt_key:
+        stat, p_value = wilcoxon(clt_data, data)
+
+        row.update(
+            {
+                "Comparison": f"{reference_model} vs {model}",
+                "Statistic": round(stat, 4),
+                "p-value": round(p_value, 4),
+                "BH adjusted p-value": None,
+                "Significant raw (p < 0.05)": "Yes" if p_value < 0.05 else "No",
+                "Significant after BH-FDR (q < 0.05)": None,
+            }
+        )
+
+        raw_p_values.append(p_value)
+        comparison_row_indices.append(len(results))
+
     else:
         row.update(
             {
-                "Comparison": f"{clt_key} (self)",
+                "Comparison": f"{reference_model} (self)",
                 "Statistic": None,
                 "p-value": None,
                 "BH adjusted p-value": None,
@@ -132,6 +134,7 @@ for model, data in models_data.items():
                 "Significant after BH-FDR (q < 0.05)": None,
             }
         )
+
     results.append(row)
 
 if raw_p_values:
@@ -153,7 +156,7 @@ if raw_p_values:
 
 
 results_df = pd.DataFrame(results)
-output_path = f"./results/wilcoxon_results_subject_means_{dataset_name}.xlsx"
+output_path = f"./results/wilcoxon_results_ablation_subject_means_{dataset_name}.xlsx"
 results_df.to_excel(output_path, index=False)
 
 print(f"Wilcoxon test complete for {dataset_name}. Results saved to: {output_path}")
