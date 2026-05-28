@@ -14,7 +14,7 @@ project_root = Path("/workspaces/eeg-clt-bci")
 os.chdir(project_root)
 
 dataset_list = ["BCI2a", "BCI2b"]
-dataset = dataset_list[0]
+dataset = dataset_list[1]
 model_name_list = [
     "CLT",
     "CTNet",

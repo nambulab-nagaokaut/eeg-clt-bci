@@ -78,7 +78,7 @@ CLT_lstm:
     EEGSamples: ${Dataset.samples} 
     Conv_drop: 0.5 
     numheads: 4
-    depth: 6
+    depth: 2
     num_classes: ${Dataset.num_classes}
   Optimizer_hyperparams:
     Conv_Decay:  0.001 

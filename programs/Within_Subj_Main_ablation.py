@@ -65,9 +65,9 @@ data_path = "./data/{}_gdf/".format(dataset)
 
 # Choose Model: CLT, EEGNet, Conformer
 #Model_name = "CLT"
-# Model_name = "CLT_lstm"
+Model_name = "CLT_lstm"
 # Model_name = "CLT_pe"
-Model_name = "CLT_parallel"
+# Model_name = "CLT_parallel"
 # Model_name = "CLT_light"
 
 
