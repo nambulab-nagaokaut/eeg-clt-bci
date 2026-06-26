@@ -27,7 +27,7 @@ Usage:
 dataset_name = "BCI2a"  # modify this as needed
 
 cv_type_list = ["Within_Subj","LOSO"]
-cv_type = cv_type_list[0]
+cv_type = cv_type_list[1]
 
 project_root = Path("/workspaces/eeg-clt-bci")
 os.chdir(project_root)

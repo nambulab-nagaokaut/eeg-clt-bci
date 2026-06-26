@@ -42,13 +42,22 @@ SUBJECTS = list(range(1, 10))
 
 FS = 250.0
 
-BASELINE = (-0.5, 0.0)
+BASELINE = (-1.0, 0.0)
 ANALYSIS_WINDOW = (0.5, 4.0)
 
+TOPO_WINDOWS = [
+    (0.5, 1.5),
+    (1.5, 2.5),
+    (2.5, 3.5),
+]
 ERDS_MODE = "percent"
 # ERDS_MODE = "db"
 
 SAVE_DPI = 300
+TMIN = -2.0
+TMAX = 5.0
+
+APPLY_CAR = True
 
 
 # ============================================================
@@ -80,7 +89,7 @@ BCI2B_CH_NAMES = ["C3", "Cz", "C4"]
 BCI2A_CLASS_NAMES = {
     0: "Left hand",
     1: "Right hand",
-    2: "Feet",
+    2: "Foot",
     3: "Tongue",
 }
 
@@ -91,7 +100,7 @@ BCI2B_CLASS_NAMES = {
 
 BANDS = {
     "mu_8_13Hz": (8.0, 13.0),
-    "beta_13_30Hz": (13.0, 30.0),
+    # "beta_13_30Hz": (13.0, 30.0),
 }
 
 
@@ -99,7 +108,7 @@ BANDS = {
 # Data loading functions
 # ============================================================
 
-def load_bci2a_data(root_path, subject, data_type, samples="1125"):
+def load_bci2a_data(root_path, subject, data_type):
     """
     Load BCI Competition IV 2a data.
 
@@ -142,18 +151,16 @@ def load_bci2a_data(root_path, subject, data_type, samples="1125"):
     if data_type == "T":
         event_id = [event_ids[key] for key in ["769", "770", "771", "772"]]
 
-        if samples == "1125":
-            epochs = mne.Epochs(
-                raw,
-                events,
-                event_id=event_id,
-                tmin=-0.5,
-                tmax=4 - 1 / 250,
-                baseline=None,
-                verbose=False,
-            )
-        else:
-            raise ValueError("For ERD/ERS analysis, samples='1125' is recommended.")
+
+        epochs = mne.Epochs(
+            raw,
+            events,
+            event_id=event_id,
+            tmin=TMIN,
+            tmax=TMAX -1/FS,
+            baseline=None,
+            verbose=False,
+        )
 
         data = epochs.get_data(verbose=False)[:, :22, :]
         label = scipy.io.loadmat(label_path)["classlabel"]
@@ -161,19 +168,16 @@ def load_bci2a_data(root_path, subject, data_type, samples="1125"):
     elif data_type == "E":
         event_id = [event_ids[key] for key in ["783"]]
 
-        if samples == "1125":
-            epochs = mne.Epochs(
-                raw,
-                events,
-                event_id=event_id,
-                tmin=-0.5,
-                tmax=4 - 1 / 250,
-                baseline=None,
-                verbose=False,
-            )
-        else:
-            raise ValueError("For ERD/ERS analysis, samples='1125' is recommended.")
-
+        epochs = mne.Epochs(
+            raw,
+            events,
+            event_id=event_id,
+            tmin=TMIN,
+            tmax=TMAX -1/FS,
+            baseline=None,
+            verbose=False,
+        )
+    
         data = epochs.get_data(verbose=False)[:, :22, :]
         label = scipy.io.loadmat(label_path)["classlabel"]
 
@@ -241,8 +245,8 @@ def load_bci2b_data(root_path, subject, data_type, samples="1125"):
                     raw,
                     events,
                     event_id=event_id,
-                    tmin=-0.5,
-                    tmax=4 - 1 / 250,
+                    tmin=-TMIN,
+                    tmax=TMAX - 1 / FS,
                     baseline=None,
                     verbose=False,
                 )
@@ -260,8 +264,8 @@ def load_bci2b_data(root_path, subject, data_type, samples="1125"):
                     raw,
                     events,
                     event_id=event_id,
-                    tmin=-1.0,
-                    tmax=3.5 - 1 / 250,
+                    tmin=-TMIN,
+                    tmax=TMAX - 1 / FS,
                     baseline=None,
                     verbose=False,
                 )
@@ -302,12 +306,12 @@ def load_subject_data(root_path, dataset, subject):
             np.ndarray, shape = [n_trials]
     """
     if dataset == "BCI2a":
-        x_train, y_train = load_bci2a_data(root_path, subject, "T", samples="1125")
-        x_test, y_test = load_bci2a_data(root_path, subject, "E", samples="1125")
+        x_train, y_train = load_bci2a_data(root_path, subject, "T")
+        x_test, y_test = load_bci2a_data(root_path, subject, "E")
 
     elif dataset == "BCI2b":
-        x_train, y_train = load_bci2b_data(root_path, subject, "T", samples="1125")
-        x_test, y_test = load_bci2b_data(root_path, subject, "E", samples="1125")
+        x_train, y_train = load_bci2b_data(root_path, subject, "T")
+        x_test, y_test = load_bci2b_data(root_path, subject, "E")
 
     else:
         raise ValueError(f"Unsupported dataset: {dataset}")
@@ -338,6 +342,21 @@ def bandpass_filter(data, fs, fmin, fmax, order=4):
     b, a = butter(order, [fmin / nyquist, fmax / nyquist], btype="band")
     filtered_data = filtfilt(b, a, data, axis=-1)
     return filtered_data
+
+def apply_common_average_reference(data):
+    """
+    Apply common average reference to EEG data.
+
+    Args:
+        data:
+            np.ndarray, shape = [n_trials, n_channels, n_times]
+
+    Returns:
+        data_car:
+            np.ndarray, shape = [n_trials, n_channels, n_times]
+    """
+    data_car = data - data.mean(axis=1, keepdims=True)
+    return data_car
 
 
 def compute_band_power_timecourse(data, fs, band):
@@ -511,7 +530,6 @@ def plot_sensorimotor_erds_timecourse(
     save_figure(fig, save_base, dpi=SAVE_DPI)
     plt.close(fig)
 
-
 def plot_classwise_erds_topomap(
     erds,
     labels,
@@ -521,38 +539,49 @@ def plot_classwise_erds_topomap(
     fs,
     save_dir,
     band_name,
-    analysis_window,
+    analysis_windows,
     mode,
 ):
     """
-    Plot class-wise ERD/ERS topography.
+    Plot class-wise ERD/ERS topography for multiple time windows
+    in a single figure.
 
-    For BCI2a, this is useful because it has 22 EEG channels.
+    Rows correspond to time windows.
+    Columns correspond to classes.
     """
     info = make_mne_info(ch_names, fs)
-
-    window_mask = (times >= analysis_window[0]) & (times <= analysis_window[1])
-
-    if window_mask.sum() == 0:
-        raise ValueError(f"No samples found in analysis_window={analysis_window}")
-
     class_ids = sorted(np.unique(labels).tolist())
 
-    erds_by_class = {}
+    n_windows = len(analysis_windows)
+    n_classes = len(class_ids)
 
-    for class_id in class_ids:
-        class_data = erds[labels == class_id]
+    erds_by_window_and_class = {}
+    all_values = []
 
-        if len(class_data) == 0:
-            continue
+    for analysis_window in analysis_windows:
+        window_mask = (times >= analysis_window[0]) & (times < analysis_window[1])
 
-        # Mean over trials and analysis time window.
-        # Output shape: [n_channels]
-        erds_by_class[class_id] = class_data[:, :, window_mask].mean(axis=(0, 2))
+        if window_mask.sum() == 0:
+            raise ValueError(f"No samples found in analysis_window={analysis_window}")
 
-    all_values = np.concatenate(list(erds_by_class.values()))
+        erds_by_window_and_class[analysis_window] = {}
 
-    # Symmetric color scale around zero.
+        for class_id in class_ids:
+            class_data = erds[labels == class_id]
+
+            if len(class_data) == 0:
+                continue
+
+            # Mean over trials and over the selected time window.
+            # Output shape: [n_channels]
+            values = class_data[:, :, window_mask].mean(axis=(0, 2))
+
+            erds_by_window_and_class[analysis_window][class_id] = values
+            all_values.append(values)
+
+    all_values = np.concatenate(all_values)
+
+    # Use a common symmetric color scale across all windows and classes.
     abs_max = np.percentile(np.abs(all_values), 95)
 
     if abs_max == 0:
@@ -560,28 +589,59 @@ def plot_classwise_erds_topomap(
 
     vlim = (-abs_max, abs_max)
 
-    n_classes = len(erds_by_class)
-    fig, axes = plt.subplots(1, n_classes, figsize=(4 * n_classes, 4))
-
-    if n_classes == 1:
-        axes = [axes]
+    fig, axes = plt.subplots(
+        n_windows,
+        n_classes,
+        figsize=(3.5 * n_classes + 1.2, 3.2 * n_windows),
+        squeeze=False,
+    )
 
     image = None
 
-    for ax, (class_id, values) in zip(axes, erds_by_class.items()):
-        image, _ = mne.viz.plot_topomap(
-            values,
-            info,
-            axes=ax,
-            show=False,
-            cmap="RdBu_r",
-            vlim=vlim,
-            contours=0,
-        )
+    for row_idx, analysis_window in enumerate(analysis_windows):
+        for col_idx, class_id in enumerate(class_ids):
+            ax = axes[row_idx, col_idx]
 
-        ax.set_title(class_names.get(class_id, f"Class {class_id}"))
+            values = erds_by_window_and_class[analysis_window].get(class_id)
 
-    cbar = fig.colorbar(image, ax=axes, shrink=0.75)
+            if values is None:
+                ax.axis("off")
+                continue
+
+            image, _ = mne.viz.plot_topomap(
+                values,
+                info,
+                axes=ax,
+                show=False,
+                cmap="RdBu_r",
+                vlim=vlim,
+                contours=0,
+            )
+
+            if row_idx == 0:
+                ax.set_title(class_names.get(class_id, f"Class {class_id}"))
+
+            if col_idx == 0:
+                ax.set_ylabel(
+                    f"{analysis_window[0]}–{analysis_window[1]} s",
+                    fontsize=11,
+                    rotation=90,
+                    labelpad=15,
+                )
+
+    # Reserve right-side space for the colorbar.
+    fig.subplots_adjust(
+        left=0.08,
+        right=0.88,
+        bottom=0.08,
+        top=0.88,
+        wspace=0.25,
+        hspace=0.25,
+    )
+
+    # Dedicated colorbar axis outside the topomap grid.
+    cbar_ax = fig.add_axes([0.90, 0.20, 0.02, 0.60])
+    cbar = fig.colorbar(image, cax=cbar_ax)
 
     if mode == "percent":
         cbar.set_label("ERD/ERS [%]")
@@ -589,21 +649,15 @@ def plot_classwise_erds_topomap(
         cbar.set_label("ERD/ERS [dB]")
 
     fig.suptitle(
-        f"Class-wise ERD/ERS topography: {band_name}, "
-        f"{analysis_window[0]}-{analysis_window[1]} s",
-        y=1.02,
+        f"Class-wise ERD/ERS topography: {band_name}",
+        y=0.96,
+        fontsize=14,
     )
 
-    fig.tight_layout()
-
-    save_base = (
-        Path(save_dir)
-        / f"topomap_erds_{band_name}_{analysis_window[0]}_{analysis_window[1]}s_{mode}"
-    )
+    save_base = Path(save_dir) / f"topomap_erds_{band_name}_all_windows_{mode}"
 
     save_figure(fig, save_base, dpi=SAVE_DPI)
     plt.close(fig)
-
 
 # ============================================================
 # Main
@@ -636,6 +690,9 @@ def main():
 
         print(f"  X: {x_subject.shape}, y: {y_subject.shape}")
 
+        if APPLY_CAR:
+            x_subject = apply_common_average_reference(x_subject)
+
         x_all.append(x_subject)
         y_all.append(y_subject)
 
@@ -659,7 +716,7 @@ def main():
     # For BCI2a this time vector is exact.
     # For BCI2b, if T and E are combined, the reference event differs slightly.
     # Therefore, for publication-level ERD/ERS in BCI2b, T/E should preferably be handled separately.
-    times = np.arange(n_times) / FS - 0.5
+    times = np.arange(n_times) / FS + TMIN
 
     print(f"Time range: {times[0]:.3f} to {times[-1]:.3f} s")
     print(f"Baseline: {BASELINE[0]} to {BASELINE[1]} s")
@@ -695,6 +752,7 @@ def main():
         )
 
         if DATASET == "BCI2a":
+
             plot_classwise_erds_topomap(
                 erds=erds,
                 labels=y_all,
@@ -704,7 +762,7 @@ def main():
                 fs=FS,
                 save_dir=save_dir,
                 band_name=band_name,
-                analysis_window=ANALYSIS_WINDOW,
+                analysis_windows=TOPO_WINDOWS,
                 mode=ERDS_MODE,
             )
         else:

@@ -31,6 +31,14 @@ from sklearn.preprocessing import StandardScaler
 import torch
 import torch.nn as nn
 
+import matplotlib as mpl
+
+mpl.rcParams["pdf.fonttype"] = 42
+mpl.rcParams["ps.fonttype"] = 42
+mpl.rcParams["font.family"] = "sans-serif"
+mpl.rcParams["font.sans-serif"] = ["DejaVu Sans"]
+mpl.rcParams["axes.unicode_minus"] = False
+
 # Fixed experimental settings.
 # Fixed experimental settings for the trained checkpoints.
 FIXED_SUBJECT = 1
@@ -476,8 +484,7 @@ def plot_confusion_matrix_single_model(
     plt.close(fig)
 
     return cm, cm_percent
-
-
+    
 def plot_confusion_matrix_multiple_models(
     confusion_results,
     dataset,
@@ -494,6 +501,12 @@ def plot_confusion_matrix_multiple_models(
         ...
     ]
     """
+    import matplotlib as mpl
+
+    # 
+    mpl.rcParams["pdf.fonttype"] = 42
+    mpl.rcParams["ps.fonttype"] = 42
+
     class_names = get_class_names(dataset)
     n_models = len(confusion_results)
 
@@ -518,7 +531,25 @@ def plot_confusion_matrix_multiple_models(
 
     im = None
     for ax, item, matrix_to_plot in zip(axes, confusion_results, matrices):
-        im = ax.imshow(matrix_to_plot, interpolation="nearest", vmin=0, vmax=vmax)
+        n_rows, n_cols = matrix_to_plot.shape
+
+        x = np.arange(n_cols + 1)
+        y = np.arange(n_rows + 1)
+
+ 
+        im = ax.pcolormesh(
+            x,
+            y,
+            matrix_to_plot,
+            vmin=0,
+            vmax=vmax,
+            shading="flat",
+            edgecolors="white",
+            linewidth=0.5,
+        )
+
+        ax.set_aspect("equal")
+        ax.invert_yaxis()
 
         model_name = item["model"]
         accuracy = item.get("accuracy", None)
@@ -527,25 +558,28 @@ def plot_confusion_matrix_multiple_models(
             title += f"\nAcc.={accuracy * 100:.1f}%"
 
         ax.set_title(title)
-        ax.set_xticks(np.arange(len(class_names)))
-        ax.set_yticks(np.arange(len(class_names)))
+
+        ax.set_xticks(np.arange(n_cols) + 0.5)
+        ax.set_yticks(np.arange(n_rows) + 0.5)
+
         ax.set_xticklabels(class_names, rotation=45, ha="right")
         ax.set_yticklabels(class_names)
+
         ax.set_xlabel("Predicted")
         ax.set_ylabel("True")
 
         threshold = vmax / 2.0 if vmax > 0 else 0.0
 
-        for i in range(matrix_to_plot.shape[0]):
-            for j in range(matrix_to_plot.shape[1]):
+        for i in range(n_rows):
+            for j in range(n_cols):
                 if normalize:
                     text_value = f"{matrix_to_plot[i, j]:.1f}"
                 else:
                     text_value = f"{matrix_to_plot[i, j]:.0f}"
 
                 ax.text(
-                    j,
-                    i,
+                    j + 0.5,
+                    i + 0.5,
                     text_value,
                     ha="center",
                     va="center",
@@ -553,15 +587,24 @@ def plot_confusion_matrix_multiple_models(
                     fontsize=8,
                 )
 
+        
+        ax.set_xlim(0, n_cols)
+        ax.set_ylim(n_rows, 0)
+
     if im is not None:
         cbar = fig.colorbar(im, ax=axes.ravel().tolist(), shrink=0.85)
         cbar.set_label("Percentage (%)" if normalize else "Number of trials")
 
     fig.suptitle(f"Confusion matrices, Subject {subject_number}", y=1.02)
+
+    # tight_layout は colorbar や suptitle と干渉することがあるため、
+    # constrained_layout の方が安定する場合もある。
     fig.tight_layout()
+
     fig.savefig(output_path_base + ".png", dpi=300, bbox_inches="tight")
     fig.savefig(output_path_base + ".pdf", bbox_inches="tight")
     plt.close(fig)
+
 
 
 def save_confusion_matrix_csv(labels, preds, dataset, output_path_base):
